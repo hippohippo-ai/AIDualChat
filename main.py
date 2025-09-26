@@ -1,6 +1,6 @@
 # --- START OF FILE main.py ---
 
-# Gemini Multi-Agent Chat GUI - Final Stable Release v3
+# Gemini Dual Chat GUI - Final Stable Version
 
 import tkinter as tk
 from tkinter import messagebox, filedialog
@@ -22,9 +22,11 @@ class GeminiChatApp:
         ctk.set_default_color_theme("blue")
 
         self.root = root
-        self.root.title("Gemini Multi-Agent Chat")
+        self.root.title("Gemini Dual Chat")
         self.root.geometry("1600x900")
+        self.root.minsize(1000, 800)
 
+        # --- UI Styling ---
         self.COLOR_BACKGROUND = "#1E1F22"
         self.COLOR_SIDEBAR = "#282A2E"
         self.COLOR_INPUT_AREA = "#282A2E"
@@ -43,23 +45,28 @@ class GeminiChatApp:
         self.SIDEBAR_WIDTH_FULL = 280
         self.SIDEBAR_WIDTH_COLLAPSED = 40
 
+        # --- State Management (Back to simple, dual-window logic) ---
         self.chat_sessions = {}
-        self.total_tokens = {1: 0, 2: 0}
-        self.streaming_responses = {1: "", 2: ""}
         self.response_queue = queue.Queue()
         self.current_generation_id = {1: 0, 2: 0}
         self.session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.interaction_mode = ctk.StringVar(value="Focus Mode")
-        self.previous_mode = "Focus Mode"
-        self.is_debating = False
 
+        # --- UI Element Dictionaries (keyed by chat_id) ---
         self.model_selectors = {}
         self.options_prompts = {}
         self.temp_vars = {1: ctk.DoubleVar(), 2: ctk.DoubleVar()}
         self.topp_vars = {1: ctk.DoubleVar(), 2: ctk.DoubleVar()}
         self.temp_labels, self.topp_labels = {}, {}
         self.file_lists = {}
-        self.token_info_vars = {1: ctk.StringVar(value="G1 Tokens: 0 | 0"), 2: ctk.StringVar(value="G2 Tokens: 0 | 0")}
+        self.token_info_vars = {1: ctk.StringVar(value="Tokens: 0 | 0"), 2: ctk.StringVar(value="Tokens: 0 | 0")}
+        self.total_tokens = {1:0, 2:0}
+        self.chat_displays = {}
+        self.user_inputs = {}
+        self.send_buttons = {}
+        self.stop_buttons = {}
+        self.progress_bars = {}
+        self.auto_reply_vars = {1: ctk.BooleanVar(value=False), 2: ctk.BooleanVar(value=False)}
+        self.raw_log_displays = {}
 
         self.load_config()
         self.delay_var = ctk.StringVar(value=str(self.config.get("auto_reply_delay_minutes", 1.0)))
@@ -68,15 +75,13 @@ class GeminiChatApp:
         if not self.api_key or "PASTE_YOUR" in self.api_key:
             self.prompt_for_api_key()
             if not self.api_key or "PASTE_YOUR" in self.api_key:
-                messagebox.showerror("API Key Required", "An API key is required to run the application.")
-                root.destroy(); return
+                messagebox.showerror("API Key Required", "An API key is required to run the application."); root.destroy(); return
 
         try:
             genai.configure(api_key=self.api_key)
             self.available_models = self.fetch_available_models()
         except Exception as e:
-            messagebox.showerror("API Error", f"Failed to connect. Check API key/internet.\n\nError: {e}")
-            root.destroy(); return
+            messagebox.showerror("API Error", f"Failed to connect. Check API key/internet.\n\nError: {e}"); root.destroy(); return
 
         self.log_dir = "logs"
         os.makedirs(self.log_dir, exist_ok=True)
@@ -84,7 +89,6 @@ class GeminiChatApp:
         self.create_widgets()
         for chat_id in [1, 2]: self.prime_chat_session(chat_id)
         self.process_queue()
-        self._on_mode_change(first_run=True)
 
     def prompt_for_api_key(self):
         dialog = ctk.CTkInputDialog(text="Please enter your Gemini API Key:", title="API Key Required")
@@ -100,8 +104,8 @@ class GeminiChatApp:
         self.config_file = 'config.json'
         default_config = {
             "api_key": "PASTE_YOUR_GEMINI_API_KEY_HERE", "auto_reply_delay_minutes": 1.0,
-            "default_model_1": "gemini-2.5-pro", "default_model_2": "gemini-2.5-flash",
-            "preferred_models": ["gemini-2.5-pro", "gemini-2.5-flash"],
+            "default_model_1": "gemini-1.5-pro-latest", "default_model_2": "gemini-1.5-flash-latest",
+            "preferred_models": ["gemini-1.5-pro-latest", "gemini-1.5-flash-latest", "gemini-pro"],
             "gemini_1": {"system_prompt": "You are Gemini 1, a helpful and concise assistant.", "temperature": 0.7, "top_p": 1.0},
             "gemini_2": {"system_prompt": "You are Gemini 2, a creative and detailed assistant.", "temperature": 0.7, "top_p": 1.0}
         }
@@ -131,8 +135,8 @@ class GeminiChatApp:
             self.total_tokens[chat_id] = 0
             self.update_token_counts(chat_id, None, True)
             if from_event and not history:
-                if hasattr(self, 'chat_display'): self.clear_chat_window()
-                self.append_message(f"--- Session reset for Gemini {chat_id} with model: {model_name} ---", "system")
+                self.chat_displays[chat_id].delete('1.0', tk.END)
+                self.append_message(chat_id, f"--- Session reset with model: {model_name} ---", "system")
                 self._remove_all_files(chat_id)
         except Exception as e: messagebox.showerror("Model Error", f"Failed to start chat for Gemini {chat_id}. Error: {e}")
     
@@ -141,6 +145,7 @@ class GeminiChatApp:
         self.left_sidebar = self._create_left_sidebar(self.root); self.left_sidebar.grid(row=0, column=0, padx=(5, 0), pady=5, sticky="nsw")
         self.central_area = self._create_central_area(self.root); self.central_area.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
         self.right_sidebar = self._create_right_sidebar(self.root); self.right_sidebar.grid(row=0, column=2, padx=(0, 5), pady=5, sticky="nse")
+        self._toggle_left_sidebar()
 
     def _toggle_left_sidebar(self):
         is_expanded = self.left_sidebar.cget('width') == self.SIDEBAR_WIDTH_FULL
@@ -168,24 +173,54 @@ class GeminiChatApp:
         return sidebar
 
     def _create_central_area(self, parent):
-        main_frame = ctk.CTkFrame(parent, fg_color="transparent"); main_frame.grid_rowconfigure(0, weight=1); main_frame.grid_columnconfigure(0, weight=1)
-        self.chat_display = ctk.CTkTextbox(main_frame, wrap="word", font=self.FONT_CHAT, state='normal', fg_color=self.COLOR_CHAT_DISPLAY, border_width=0, text_color=self.COLOR_TEXT)
-        self.chat_display.grid(row=0, column=0, sticky="nsew"); self._setup_highlighting_tags()
-        input_frame = ctk.CTkFrame(main_frame, fg_color=self.COLOR_INPUT_AREA, corner_radius=10); input_frame.grid(row=1, column=0, pady=(5, 0), sticky="ew"); input_frame.grid_columnconfigure(0, weight=1)
-        top_controls_frame = ctk.CTkFrame(input_frame, fg_color="transparent"); top_controls_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
-        ctk.CTkLabel(top_controls_frame, text="Interaction Mode:", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).pack(side="left")
-        mode_menu = ctk.CTkComboBox(top_controls_frame, variable=self.interaction_mode, values=["Focus Mode", "Chained Mode", "Debate Mode"], command=self._on_mode_change, font=self.FONT_GENERAL, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, button_color=self.COLOR_WIDGET_BG); mode_menu.pack(side="left", padx=10)
-        self.stop_button = ctk.CTkButton(top_controls_frame, text="Stop", command=self.stop_generation, state="disabled", font=self.FONT_BOLD, width=60); self.stop_button.pack(side="left", padx=10)
-        status_frame = ctk.CTkFrame(top_controls_frame, fg_color="transparent"); status_frame.pack(side="right")
-        self.countdown_label = ctk.CTkLabel(status_frame, text="", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED); self.countdown_label.pack(side="left", padx=10)
-        token_frame = ctk.CTkFrame(status_frame, fg_color="transparent"); token_frame.pack(side="left")
-        ctk.CTkLabel(token_frame, textvariable=self.token_info_vars[1], font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).pack(side="left", padx=5)
-        ctk.CTkLabel(token_frame, text="|", text_color=self.COLOR_TEXT_MUTED).pack(side="left")
-        ctk.CTkLabel(token_frame, textvariable=self.token_info_vars[2], font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).pack(side="left", padx=5)
-        self.user_input = ctk.CTkTextbox(input_frame, height=120, wrap="word", font=self.FONT_CHAT, fg_color=self.COLOR_CHAT_DISPLAY, border_width=1, border_color=self.COLOR_BORDER); self.user_input.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
-        self.send_button_frame = ctk.CTkFrame(input_frame, fg_color="transparent"); self.send_button_frame.grid(row=1, column=1, padx=(0, 10), pady=5, sticky="ns")
-        self.progress_bar = ctk.CTkProgressBar(input_frame, mode='indeterminate'); self.progress_bar.grid(row=2, column=0, columnspan=2, padx=10, pady=5, sticky="ew"); self.progress_bar.grid_remove()
-        return main_frame
+        tab_view = ctk.CTkTabview(parent, fg_color=self.COLOR_INPUT_AREA); tab_view.grid(row=0, column=0, sticky="nsew")
+        
+        tab1 = tab_view.add("Gemini 1")
+        tab2 = tab_view.add("Gemini 2")
+        tab3 = tab_view.add("Gemini 1 (Raw)")
+        tab4 = tab_view.add("Gemini 2 (Raw)")
+
+        self._create_chat_panel(tab1, 1)
+        self._create_chat_panel(tab2, 2)
+
+        # Create raw log displays in the new tabs
+        for chat_id, tab in zip([1, 2], [tab3, tab4]):
+            tab.grid_columnconfigure(0, weight=1)
+            tab.grid_rowconfigure(0, weight=1)
+            display = ctk.CTkTextbox(tab, wrap="word", font=self.FONT_CHAT, state='normal', fg_color=self.COLOR_CHAT_DISPLAY, text_color=self.COLOR_TEXT)
+            display.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+            self.raw_log_displays[chat_id] = display
+        
+        return tab_view
+
+    def _create_chat_panel(self, parent, chat_id):
+        parent.grid_columnconfigure(0, weight=1); parent.grid_rowconfigure(0, weight=1)
+        
+        self.chat_displays[chat_id] = ctk.CTkTextbox(parent, wrap="word", font=self.FONT_CHAT, state='normal', fg_color=self.COLOR_CHAT_DISPLAY, border_width=0, text_color=self.COLOR_TEXT)
+        self.chat_displays[chat_id].grid(row=0, column=0, sticky="nsew")
+        self._setup_highlighting_tags(self.chat_displays[chat_id])
+
+        input_frame = ctk.CTkFrame(parent, fg_color=self.COLOR_INPUT_AREA); input_frame.grid(row=1, column=0, pady=(5, 0), sticky="ew"); input_frame.grid_columnconfigure(0, weight=1)
+        
+        self.user_inputs[chat_id] = ctk.CTkTextbox(input_frame, height=120, wrap="word", font=self.FONT_CHAT, fg_color=self.COLOR_CHAT_DISPLAY, border_width=1, border_color=self.COLOR_BORDER)
+        self.user_inputs[chat_id].grid(row=0, column=0, padx=10, pady=5, sticky="nsew")
+        self.user_inputs[chat_id].bind("<Control-Return>", lambda event, c=chat_id: self.send_message(c))
+
+        controls_frame = ctk.CTkFrame(input_frame, fg_color="transparent"); controls_frame.grid(row=0, column=1, padx=(0,10), pady=5, sticky="ns")
+        self.send_buttons[chat_id] = ctk.CTkButton(controls_frame, text="Send", command=lambda c=chat_id: self.send_message(c), font=self.FONT_GENERAL, width=70)
+        self.send_buttons[chat_id].pack(pady=(0,2), fill="x")
+        self.stop_buttons[chat_id] = ctk.CTkButton(controls_frame, text="Stop", command=lambda c=chat_id: self.stop_generation(c), font=self.FONT_GENERAL, width=70, state="disabled")
+        self.stop_buttons[chat_id].pack(pady=(2,10), fill="x")
+
+        auto_reply_text = "Auto-reply to Gemini 2" if chat_id == 1 else "Auto-reply to Gemini 1"
+        ctk.CTkCheckBox(controls_frame, text=auto_reply_text, variable=self.auto_reply_vars[chat_id], font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).pack(anchor="w")
+        
+        self.token_info_vars[chat_id] = ctk.StringVar(value="Tokens: 0 | 0")
+        ctk.CTkLabel(controls_frame, textvariable=self.token_info_vars[chat_id], font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).pack(anchor="w", pady=(10,0))
+        
+        self.progress_bars[chat_id] = ctk.CTkProgressBar(input_frame, mode='indeterminate');
+        self.progress_bars[chat_id].grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+        self.progress_bars[chat_id].grid_remove()
 
     def _create_right_sidebar(self, parent):
         sidebar = ctk.CTkFrame(parent, width=self.SIDEBAR_WIDTH_FULL, fg_color=self.COLOR_SIDEBAR, corner_radius=10); sidebar.pack_propagate(False)
@@ -196,10 +231,10 @@ class GeminiChatApp:
         model_frame = ctk.CTkFrame(sidebar.content_frame, fg_color="transparent"); model_frame.pack(fill="x", padx=15, pady=5); model_frame.grid_columnconfigure(0, weight=1)
         model_list = self._create_model_list_for_dropdown()
         ctk.CTkLabel(model_frame, text="Gemini 1 Model", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).grid(row=0, column=0, sticky="w")
-        self.model_selectors[1] = ctk.CTkComboBox(model_frame, values=model_list, command=lambda e, c=1: self.on_model_change(c), font=self.FONT_GENERAL, dropdown_font=self.FONT_GENERAL, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, button_color=self.COLOR_WIDGET_BG, dropdown_fg_color=self.COLOR_WIDGET_BG)
+        self.model_selectors[1] = ctk.CTkComboBox(model_frame, values=model_list, command=lambda e, c=1: self.on_model_change(c), font=self.FONT_GENERAL, dropdown_font=self.FONT_GENERAL, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, button_color=self.COLOR_WIDGET_BG, dropdown_fg_color=self.COLOR_WIDGET_BG, state="readonly")
         self.model_selectors[1].set(self.config.get("default_model_1")); self.model_selectors[1].grid(row=1, column=0, pady=(0,10), sticky="ew")
         ctk.CTkLabel(model_frame, text="Gemini 2 Model", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).grid(row=2, column=0, sticky="w")
-        self.model_selectors[2] = ctk.CTkComboBox(model_frame, values=model_list, command=lambda e, c=2: self.on_model_change(c), font=self.FONT_GENERAL, dropdown_font=self.FONT_GENERAL, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, button_color=self.COLOR_WIDGET_BG, dropdown_fg_color=self.COLOR_WIDGET_BG)
+        self.model_selectors[2] = ctk.CTkComboBox(model_frame, values=model_list, command=lambda e, c=2: self.on_model_change(c), font=self.FONT_GENERAL, dropdown_font=self.FONT_GENERAL, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, button_color=self.COLOR_WIDGET_BG, dropdown_fg_color=self.COLOR_WIDGET_BG, state="readonly")
         self.model_selectors[2].set(self.config.get("default_model_2")); self.model_selectors[2].grid(row=3, column=0, pady=(0,10), sticky="ew")
         config_frame = ctk.CTkFrame(sidebar.content_frame, fg_color="transparent"); config_frame.pack(fill="x", padx=15, pady=(10,5)); config_frame.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(config_frame, text="Auto-Reply Delay (min)", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).grid(row=0, column=0, sticky="w")
@@ -249,43 +284,26 @@ class GeminiChatApp:
         header.bind("<Button-1>", toggle_content); header_label.bind("<Button-1>", toggle_content); chevron_label.bind("<Button-1>", toggle_content)
         return content_frame
 
-    def _on_mode_change(self, *args, first_run=False):
-        new_mode = self.interaction_mode.get()
-        if not first_run and new_mode != self.previous_mode:
-            if messagebox.askyesno("Confirm Mode Change", "Changing the interaction mode will start a new session. Are you sure?"): self.new_session()
-            else: self.interaction_mode.set(self.previous_mode); return
-        self.previous_mode = new_mode
-        for widget in self.send_button_frame.winfo_children(): widget.destroy()
-        self.root.unbind("<Control-1>"); self.root.unbind("<Control-2>"); self.root.unbind("<Control-Return>")
-        if new_mode == "Focus Mode":
-            btn_g1 = ctk.CTkButton(self.send_button_frame, text="To G1", command=lambda: self._initiate_send(1), font=self.FONT_GENERAL, width=70); btn_g1.pack(expand=True, fill="y", pady=(0,2))
-            btn_g2 = ctk.CTkButton(self.send_button_frame, text="To G2", command=lambda: self._initiate_send(2), font=self.FONT_GENERAL, width=70); btn_g2.pack(expand=True, fill="y", pady=(2,0))
-            self.root.bind("<Control-1>", lambda event: self._initiate_send(1)); self.root.bind("<Control-2>", lambda event: self._initiate_send(2))
-        elif new_mode == "Chained Mode":
-            btn = ctk.CTkButton(self.send_button_frame, text="Start Chain", command=lambda: self._initiate_send(1), font=self.FONT_GENERAL, width=70); btn.pack(expand=True, fill="y")
-            self.root.bind("<Control-Return>", lambda event: self._initiate_send(1))
-        elif new_mode == "Debate Mode":
-            self.debate_button = ctk.CTkButton(self.send_button_frame, text="Start Debate", command=self._toggle_debate, font=self.FONT_GENERAL, width=70); self.debate_button.pack(expand=True, fill="y")
-            self.root.bind("<Control-Return>", lambda event: self._toggle_debate())
-
-    def _toggle_debate(self):
-        if not self.is_debating:
-            if self._initiate_send(1) != "break": self.is_debating = True; self.debate_button.configure(text="Stop", fg_color="firebrick")
+    def send_message(self, chat_id, message_text=None):
+        is_auto_reply = message_text is not None
+        if not is_auto_reply:
+            msg = self.user_inputs[chat_id].get("1.0", tk.END).strip()
+            if not msg: return "break"
+            self.user_inputs[chat_id].delete("1.0", tk.END)
         else:
-            self.is_debating = False; self.debate_button.configure(text="Start Debate", fg_color=ctk.ThemeManager.theme["CTkButton"]["fg_color"])
-            self.stop_generation(); self.append_message("--- Debate stopped by user. ---", "system")
+            msg = message_text
 
-    def _initiate_send(self, target_chat_id):
-        msg = self.user_input.get("1.0", tk.END).strip()
-        if not msg: return "break"
-        self.user_input.delete("1.0", tk.END); self.append_message(f"You:", "user", msg)
-        self._start_api_call(target_chat_id, msg)
+        tag = "autoreply" if is_auto_reply else "user"
+        label = f"Gemini {2 if chat_id == 1 else 1} (Auto):" if is_auto_reply else "You:"
+        self.append_message(chat_id, label, tag, msg)
+        
+        self._start_api_call(chat_id, msg)
         return "break"
 
-    def _start_api_call(self, chat_id, message, is_follow_up=False):
+    def _start_api_call(self, chat_id, message):
         files = self.file_lists[chat_id].full_paths if hasattr(self.file_lists[chat_id], 'full_paths') else []
-        if not is_follow_up and files: self.append_message(f"Attached to Gemini {chat_id}: {', '.join([os.path.basename(p) for p in files])}", "system")
-        self.current_generation_id[chat_id] += 1; self.update_ui_for_sending()
+        if files: self.append_message(chat_id, f"Attached: {', '.join([os.path.basename(p) for p in files])}", "system")
+        self.current_generation_id[chat_id] += 1; self.update_ui_for_sending(chat_id)
         thread = threading.Thread(target=self.api_call_thread, args=(self.chat_sessions[chat_id], message, chat_id, files, self.current_generation_id[chat_id])); thread.daemon = True; thread.start()
         self._remove_all_files(chat_id)
         
@@ -294,24 +312,40 @@ class GeminiChatApp:
             msg = self.response_queue.get_nowait()
             chat_id, msg_type = msg['chat_id'], msg.get('type')
             if msg.get('generation_id') != self.current_generation_id[chat_id] and msg_type not in ['info', 'error']: return
+            
+            display = self.chat_displays.get(chat_id)
+            raw_display = self.raw_log_displays.get(chat_id)
+
             if msg_type == 'stream_start':
-                self.streaming_responses[chat_id] = ""; self.append_message(f"Gemini {chat_id}:", f"gemini{chat_id}")
-                self.chat_display.mark_set(f"stream_start_{chat_id}", tk.INSERT); self.chat_display.mark_gravity(f"stream_start_{chat_id}", "left")
+                label = f"Gemini {chat_id}:"
+                if display:
+                    display.insert(tk.END, f"\n---\n# {label}\n", (f"gemini{chat_id}", "speaker_bold"))
+                    display.mark_set(f"stream_start_{chat_id}", tk.INSERT); display.mark_gravity(f"stream_start_{chat_id}", "left")
+                if raw_display:
+                    raw_display.insert(tk.END, f"\n---\n# {label}\n")
+                    raw_display.see(tk.END)
+
             elif msg_type == 'stream_chunk':
-                self.streaming_responses[chat_id] += msg['text']; self.chat_display.insert(tk.END, msg['text']); self.chat_display.see(tk.END)
+                if display:
+                    display.insert(tk.END, msg['text']); display.see(tk.END)
+                if raw_display:
+                    raw_display.insert(tk.END, msg['text']); raw_display.see(tk.END)
+
             elif msg_type == 'stream_end':
-                self.chat_display.mark_set(f"stream_end_{chat_id}", tk.END)
-                full_response_text = self.streaming_responses[chat_id]
-                self.highlight_markdown(chat_id, full_response_text)
-                self.restore_ui_after_response()
+                full_response_text = msg.get('full_text', '')
+                if display:
+                    self.highlight_markdown(chat_id, full_response_text)
+                
+                self.restore_ui_after_response(chat_id)
                 if msg.get('usage'): self.update_token_counts(chat_id, msg['usage'])
                 self.log_conversation(chat_id, msg['user_message'], full_response_text)
+                
                 target_id = 2 if chat_id == 1 else 1
-                if self.interaction_mode.get() == "Chained Mode" and chat_id == 1: self._schedule_follow_up(target_id, full_response_text)
-                elif self.interaction_mode.get() == "Debate Mode" and self.is_debating: self._schedule_follow_up(target_id, full_response_text)
+                if self.auto_reply_vars[chat_id].get():
+                    self._schedule_follow_up(target_id, full_response_text)
             elif msg_type in ['error', 'info']:
-                if "Retrying" not in msg['text']: self.restore_ui_after_response()
-                self.append_message(msg['text'], 'system' if msg_type == 'info' else 'error')
+                self.restore_ui_after_response(chat_id)
+                self.append_message(chat_id, msg['text'], 'system' if msg_type == 'info' else 'error')
         except queue.Empty: pass
         finally: self.root.after(100, self.process_queue)
 
@@ -321,74 +355,76 @@ class GeminiChatApp:
             if delay_minutes < 0: raise ValueError
             delay_seconds = delay_minutes * 60
             if delay_seconds > 0:
-                self.append_message(f"--- Auto-replying to Gemini {target_id} in {delay_seconds:.1f} seconds... ---", "system")
-                self._update_countdown(target_id, int(delay_seconds), message)
-            else: self._start_api_call(target_id, message, is_follow_up=True)
+                self.append_message(target_id, f"--- Auto-replying in {delay_seconds:.1f} seconds... ---", "system")
+                self.root.after(int(delay_seconds * 1000), lambda: self.send_message(target_id, message))
+            else: self.send_message(target_id, message)
         except (ValueError, TypeError):
-            self.append_message("--- Invalid auto-reply delay. Sending immediately. ---", "error")
-            self._start_api_call(target_id, message, is_follow_up=True)
-
-    def _update_countdown(self, target_id, remaining_seconds, message):
-        if remaining_seconds > 0 and (self.interaction_mode.get() in ["Chained Mode", "Debate Mode"]):
-            self.countdown_label.configure(text=f"Auto-reply in: {remaining_seconds}s")
-            self.root.after(1000, self._update_countdown, target_id, remaining_seconds - 1, message)
-        else:
-            self.countdown_label.configure(text="")
-            if self.interaction_mode.get() in ["Chained Mode", "Debate Mode"]: self._start_api_call(target_id, message, is_follow_up=True)
+            self.append_message(target_id, "--- Invalid auto-reply delay. Sending immediately. ---", "error")
+            self.send_message(target_id, message)
         
-    def stop_generation(self, *args):
-        if self.is_debating: self.is_debating = False; self.debate_button.configure(text="Start Debate", fg_color=ctk.ThemeManager.theme["CTkButton"]["fg_color"]); self.append_message("--- Debate stopped by user. ---", "system")
-        self.current_generation_id[1] += 1; self.current_generation_id[2] += 1
-        self.restore_ui_after_response(); self.append_message("\n--- All generations stopped. ---\n", "system")
+    def stop_generation(self, chat_id):
+        self.current_generation_id[chat_id] += 1
+        self.restore_ui_after_response(chat_id)
+        self.append_message(chat_id, "\n--- Generation stopped by user. ---\n", "system")
 
-    def update_ui_for_sending(self):
-        self.user_input.configure(state='disabled'); self.stop_button.configure(state='normal'); self.progress_bar.grid(); self.progress_bar.start()
-        for child in self.send_button_frame.winfo_children(): child.configure(state='disabled')
+    def update_ui_for_sending(self, chat_id):
+        self.user_inputs[chat_id].configure(state='disabled'); self.send_buttons[chat_id].configure(state='disabled')
+        self.stop_buttons[chat_id].configure(state='normal'); self.progress_bars[chat_id].grid(); self.progress_bars[chat_id].start()
 
-    def restore_ui_after_response(self):
-        self.user_input.configure(state='normal'); self.stop_button.configure(state='disabled'); self.progress_bar.stop(); self.progress_bar.grid_remove(); self.user_input.focus_set()
-        if not (self.interaction_mode.get() == "Debate Mode" and self.is_debating):
-            for child in self.send_button_frame.winfo_children(): child.configure(state='normal')
+    def restore_ui_after_response(self, chat_id):
+        self.user_inputs[chat_id].configure(state='normal'); self.send_buttons[chat_id].configure(state='normal')
+        self.stop_buttons[chat_id].configure(state='disabled'); self.progress_bars[chat_id].stop(); self.progress_bars[chat_id].grid_remove(); self.user_inputs[chat_id].focus_set()
 
-    def append_message(self, label, tag, content=""):
-        if hasattr(self, 'chat_display'):
-            self.chat_display.insert(tk.END, f"\n{label} ", (tag, "speaker_bold"))
-            if content: self.chat_display.insert(tk.END, content, tag)
-            self.chat_display.see(tk.END)
+    def append_message(self, chat_id, label, tag, content=""):
+        # Formatted display
+        display = self.chat_displays.get(chat_id)
+        if display: 
+            display.insert(tk.END, f"\n---\n# {label}\n", (tag, "speaker_bold"))
+            display.insert(tk.END, content, tag)
+            display.see(tk.END)
+        
+        # Raw display
+        raw_display = self.raw_log_displays.get(chat_id)
+        if raw_display:
+            raw_display.insert(tk.END, f"\n---\n# {label}\n")
+            raw_display.insert(tk.END, content)
+            raw_display.see(tk.END)
     
-    def clear_chat_window(self): self.chat_display.delete('1.0', tk.END)
-
     def new_session(self):
-        self.clear_chat_window()
-        for chat_id in [1, 2]: self.prime_chat_session(chat_id, from_event=True)
-        self.append_message("--- New session started. ---", "system")
+        for chat_id in [1, 2]:
+            self.chat_displays[chat_id].delete('1.0', tk.END)
+            self.prime_chat_session(chat_id, from_event=True)
+            self.append_message(chat_id, "--- New session started. ---", "system")
+        self.delay_var.set(str(self.config.get("auto_reply_delay_minutes", 1.0)))
 
     def update_token_counts(self, chat_id, usage_metadata, reset=False):
-        if reset: self.total_tokens[chat_id] = 0; self.token_info_vars[chat_id].set(f"G{chat_id} Tokens: 0 | 0"); return
+        if reset: self.total_tokens[chat_id] = 0; self.token_info_vars[chat_id].set(f"Tokens: 0 | 0"); return
         if not usage_metadata: return
         last = usage_metadata.get('prompt_token_count', 0) + usage_metadata.get('candidates_token_count', 0)
-        self.total_tokens[chat_id] += last; self.token_info_vars[chat_id].set(f"G{chat_id} Tokens: {last} | {self.total_tokens[chat_id]}")
+        self.total_tokens[chat_id] += last; self.token_info_vars[chat_id].set(f"Tokens: {last} | {self.total_tokens[chat_id]}")
     
-    def _setup_highlighting_tags(self):
-        self.chat_display.tag_config("user", foreground="#A9DFBF"); self.chat_display.tag_config("gemini1", foreground="#A9CCE3"); self.chat_display.tag_config("gemini2", foreground="#D2B4DE")
-        self.chat_display.tag_config("system", foreground=self.COLOR_TEXT_MUTED); self.chat_display.tag_config("autoreply", foreground="#D4AC0D"); self.chat_display.tag_config("error", foreground="#F5B7B1")
-        self.chat_display.tag_config("speaker_bold", foreground=self.COLOR_TEXT_SELECTED); self.chat_display.tag_config("md_bold", foreground=self.COLOR_TEXT_SELECTED)
-        self.chat_display.tag_config("md_italic", foreground="#B2BABB")
-        self.chat_display.tag_config("md_code_inline", foreground="#FAD7A0", background="#2B2B2B"); self.chat_display.tag_config("md_code_block", background="#2B2B2B", lmargin1=20, lmargin2=20, rmargin=20)
+    def _setup_highlighting_tags(self, display_widget):
+        display_widget.tag_config("user", foreground="#A9DFBF"); display_widget.tag_config("gemini1", foreground="#A9CCE3"); display_widget.tag_config("gemini2", foreground="#D2B4DE")
+        display_widget.tag_config("system", foreground=self.COLOR_TEXT_MUTED); display_widget.tag_config("autoreply", foreground="#D4AC0D"); display_widget.tag_config("error", foreground="#F5B7B1")
+        display_widget.tag_config("speaker_bold", foreground=self.COLOR_TEXT_SELECTED)
+        display_widget.tag_config("md_bold", foreground=self.COLOR_TEXT_SELECTED)
+        display_widget.tag_config("md_italic", foreground="#B2BABB")
+        display_widget.tag_config("md_code_inline", foreground="#FAD7A0", background="#2B2B2B"); display_widget.tag_config("md_code_block", background="#2B2B2B", lmargin1=20, lmargin2=20, rmargin=20)
 
     def highlight_markdown(self, chat_id, text):
-        display, start_mark, end_mark = self.chat_display, f"stream_start_{chat_id}", f"stream_end_{chat_id}"
+        display = self.chat_displays[chat_id]
+        start_mark_name = f"stream_start_{chat_id}"; end_mark_name = f"stream_end_{chat_id}"
         try:
-            base_tag = f"gemini{chat_id}"; start_index_str = display.index(start_mark)
-            text_to_format = display.get(start_mark, end_mark)
-            display.delete(start_mark, end_mark)
+            display.mark_set(end_mark_name, tk.INSERT)
+            base_tag = f"gemini{chat_id}"; start_index_str = display.index(start_mark_name)
+            display.delete(start_mark_name, end_mark_name)
             segments = re.split(r'(\*\*.*?\*\*|\*.*?\*)', text)
             for segment in segments:
                 if segment.startswith('**') and segment.endswith('**'): display.insert(start_index_str, segment[2:-2], (base_tag, "md_bold"))
                 elif segment.startswith('*') and segment.endswith('*'): display.insert(start_index_str, segment[1:-1], (base_tag, "md_italic"))
                 else: display.insert(start_index_str, segment, base_tag)
         except tk.TclError: display.insert(tk.END, text, base_tag)
-        finally: display.mark_unset(start_mark); display.mark_unset(end_mark)
+        finally: display.mark_unset(start_mark_name); display.mark_unset(end_mark_name)
 
     def save_and_apply_settings(self, chat_id):
         config_key = f'gemini_{chat_id}'
@@ -426,30 +462,44 @@ class GeminiChatApp:
         if hasattr(listbox, 'full_paths'): listbox.delete(0, tk.END); listbox.full_paths = []
         
     def api_call_thread(self, session, msg, chat_id, files, generation_id):
-        max_retries = 3; retry_count = 0
-        while retry_count < max_retries:
+        response = None
+        try:
+            content = [msg]
+            if files: content.extend([genai.upload_file(path=p) for p in files])
+            self.response_queue.put({'type': 'stream_start', 'chat_id': chat_id, 'generation_id': generation_id})
+            response = session.send_message(content, stream=True)
+            for chunk in response:
+                if self.current_generation_id[chat_id] != generation_id: return
+                if chunk.text: self.response_queue.put({'type': 'stream_chunk', 'chat_id': chat_id, 'text': chunk.text, 'generation_id': generation_id})
+        except Exception as e:
+            error_str = str(e)
+            if "429" in error_str and ("quota" in error_str.lower() or "rate limit" in error_str.lower()):
+                match = re.search(r"retry in ([\d\.]+)s", error_str.lower())
+                delay = math.ceil(float(match.group(1))) + 1 if match else 60
+                self.response_queue.put({'type': 'info', 'chat_id': chat_id, 'text': f"\n--- Retrying Gemini {chat_id} in {delay}s... ---\n", 'generation_id': generation_id})
+                time.sleep(delay); self.api_call_thread(session, msg, chat_id, files, generation_id); return
+            else: self.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"API Error: {e}", 'generation_id': generation_id})
+        finally:
             if self.current_generation_id[chat_id] != generation_id: return
-            try:
-                content = [msg]; content.extend([genai.upload_file(path=p) for p in files] if files else [])
-                self.response_queue.put({'type': 'stream_start', 'chat_id': chat_id, 'generation_id': generation_id})
-                response = session.send_message(content, stream=True)
-                for chunk in response:
-                    if self.current_generation_id[chat_id] != generation_id: return
-                    if chunk.text: self.response_queue.put({'type': 'stream_chunk', 'chat_id': chat_id, 'text': chunk.text, 'generation_id': generation_id})
+            if response is not None:
+                is_ok, reason, full_text = False, "UNKNOWN", ""
+                try: full_text = response.text
+                except Exception: pass
+                if response.candidates:
+                    finish_reason_enum = response.candidates[0].finish_reason; reason = finish_reason_enum.name
+                    if reason == "STOP": is_ok = True
                 usage_meta = response.usage_metadata
                 usage_dict = {'prompt_token_count': usage_meta.prompt_token_count, 'candidates_token_count': usage_meta.candidates_token_count} if usage_meta else None
-                self.response_queue.put({'type': 'stream_end', 'chat_id': chat_id, 'usage': usage_dict, 'user_message': msg, 'generation_id': generation_id})
-                break
-            except Exception as e:
-                error_str = str(e).lower()
-                if "429" in error_str and ("quota" in error_str or "rate limit" in error_str):
-                    retry_count += 1
-                    if retry_count >= max_retries: self.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"API Error: Retries failed. Last error: {e}", 'generation_id': generation_id}); break
-                    match = re.search(r"retry in ([\d\.]+)s", error_str)
-                    delay = math.ceil(float(match.group(1))) + 1 if match else 60
-                    self.response_queue.put({'type': 'info', 'chat_id': chat_id, 'text': f"\n--- Retrying Gemini {chat_id} in {delay}s... ---\n", 'generation_id': generation_id})
-                    time.sleep(delay); continue
-                else: self.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"API Error: {e}", 'generation_id': generation_id}); break
+                self.response_queue.put({'type': 'stream_end', 'chat_id': chat_id, 'usage': usage_dict, 'user_message': msg, 'generation_id': generation_id, 'is_ok': is_ok, 'full_text': full_text})
+                if not is_ok:
+                    try:
+                        session.rewind()
+                        error_text = f"--- Gemini {chat_id} response stopped abnormally (Reason: {reason}). Chat history has been repaired. The automated reply chain is stopped. ---"
+                        self.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': error_text, 'generation_id': generation_id})
+                    except ValueError:
+                        error_text = f"--- Gemini {chat_id} response stopped abnormally (Reason: {reason}). Could not repair history. Starting a new session is recommended. ---"
+                        self.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': error_text, 'generation_id': generation_id})
+            else: self.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': "--- API call failed to return a response object. Check connection. ---", 'generation_id': generation_id})
 
     def save_session(self, chat_id):
         filepath = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")], title=f"Save Gemini {chat_id} Session")
@@ -469,15 +519,15 @@ class GeminiChatApp:
             self.model_selectors[chat_id].set(session_data['model_name'])
             self.options_prompts[chat_id].delete("1.0", tk.END); self.options_prompts[chat_id].insert("1.0", session_data['system_prompt'])
             self.prime_chat_session(chat_id, history=session_data['history'], from_event=True)
-            self.append_message(f"--- Loaded session into Gemini {chat_id}. History restored. ---", "system")
+            self.append_message(chat_id, f"--- Loaded session. History restored. ---", "system")
         except Exception as e: messagebox.showerror("Error", f"Failed to load session: {e}")
 
     def log_conversation(self, chat_id, user, response):
-        path = os.path.join(self.log_dir, f"session_{self.session_timestamp}.txt")
+        path = os.path.join(self.log_dir, f"session_{self.session_timestamp}_gemini_{chat_id}.txt")
         with open(path, 'a', encoding='utf-8') as f:
-            f.write(f"--- {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-            if user: f.write(f"USER to G{chat_id}: {user}\n")
-            f.write(f"GEMINI {chat_id}: {response}\n\n")
+            if user:
+                f.write(f"---\n# You:\n{user}\n")
+            f.write(f"---\n# Gemini {chat_id}:\n{response}\n\n")
 
 if __name__ == "__main__":
     root = ctk.CTk()
