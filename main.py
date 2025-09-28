@@ -407,24 +407,99 @@ class GeminiChatApp:
         display_widget.tag_config("user", foreground="#A9DFBF"); display_widget.tag_config("gemini1", foreground="#A9CCE3"); display_widget.tag_config("gemini2", foreground="#D2B4DE")
         display_widget.tag_config("system", foreground=self.COLOR_TEXT_MUTED); display_widget.tag_config("autoreply", foreground="#D4AC0D"); display_widget.tag_config("error", foreground="#F5B7B1")
         display_widget.tag_config("speaker_bold", foreground=self.COLOR_TEXT_SELECTED)
-        display_widget.tag_config("md_bold", foreground=self.COLOR_TEXT_SELECTED)
-        display_widget.tag_config("md_italic", foreground="#B2BABB")
-        display_widget.tag_config("md_code_inline", foreground="#FAD7A0", background="#2B2B2B"); display_widget.tag_config("md_code_block", background="#2B2B2B", lmargin1=20, lmargin2=20, rmargin=20)
+        # Cannot use 'font' with CTkTextbox tags due to scaling incompatibility. Using colors and underline instead.
+        display_widget.tag_config("md_bold", foreground="#A9DFBF")
+        display_widget.tag_config("md_italic", foreground="#D2B4DE")
+        display_widget.tag_config("md_strikethrough", overstrike=True)
+        display_widget.tag_config("md_code_inline", foreground="#FAD7A0", background="#2B2B2B")
+        display_widget.tag_config("md_code_block", background="#2B2B2B", lmargin1=20, lmargin2=20, rmargin=20)
+        display_widget.tag_config("md_h1", foreground="#85C1E9", underline=True)
+        display_widget.tag_config("md_h2", foreground="#85C1E9")
+        display_widget.tag_config("md_h3", foreground="#A9CCE3")
+        display_widget.tag_config("md_blockquote", lmargin1=20, foreground="#B2BABB")
 
     def highlight_markdown(self, chat_id, text):
         display = self.chat_displays[chat_id]
-        start_mark_name = f"stream_start_{chat_id}"; end_mark_name = f"stream_end_{chat_id}"
+        start_mark_name = f"stream_start_{chat_id}"
+        end_mark_name = f"stream_end_{chat_id}"
         try:
             display.mark_set(end_mark_name, tk.INSERT)
-            base_tag = f"gemini{chat_id}"; start_index_str = display.index(start_mark_name)
-            display.delete(start_mark_name, end_mark_name)
-            segments = re.split(r'(\*\*.*?\*\*|\*.*?\*)', text)
-            for segment in segments:
-                if segment.startswith('**') and segment.endswith('**'): display.insert(start_index_str, segment[2:-2], (base_tag, "md_bold"))
-                elif segment.startswith('*') and segment.endswith('*'): display.insert(start_index_str, segment[1:-1], (base_tag, "md_italic"))
-                else: display.insert(start_index_str, segment, base_tag)
-        except tk.TclError: display.insert(tk.END, text, base_tag)
-        finally: display.mark_unset(start_mark_name); display.mark_unset(end_mark_name)
+            start_index = display.index(start_mark_name)
+            display.delete(start_index, end_mark_name)
+            
+            base_tag = f"gemini{chat_id}"
+            
+            lines = text.split('\n')
+            in_code_block = False
+            
+            inline_pattern = re.compile(r'(`(.*?)`)|(\*\*(.*?)\*\*)|(__(.*?)__)|(\*(.*?)\*)|(_(.*?)_)|(~~(.*?)~~)')
+
+            for i, line in enumerate(lines):
+                # Use a consistent newline character
+                line_plus_newline = line if i == len(lines) - 1 else line + '\n'
+                
+                # Code blocks override all other formatting
+                if line.startswith("```"):
+                    in_code_block = not in_code_block
+                    continue
+                if in_code_block:
+                    display.insert(start_index, line_plus_newline, (base_tag, "md_code_block"))
+                    continue
+
+                # --- Block Elements ---
+                block_tags = [base_tag]
+                if line.startswith('# '):
+                    block_tags.append('md_h1')
+                    line = line[2:]
+                elif line.startswith('## '):
+                    block_tags.append('md_h2')
+                    line = line[3:]
+                elif line.startswith('### '):
+                    block_tags.append('md_h3')
+                    line = line[4:]
+                elif line.startswith('> '):
+                    block_tags.append('md_blockquote')
+                    line = line[2:]
+                elif line.strip().startswith('* ') or line.strip().startswith('- '):
+                    line = re.sub(r'^\s*[-*]\s', '  • ', line)
+
+                # --- Inline Elements ---
+                last_end = 0
+                for match in inline_pattern.finditer(line):
+                    start, end = match.span()
+                    
+                    # Insert text before the match
+                    if start > last_end:
+                        display.insert(start_index, line[last_end:start], tuple(block_tags))
+                    
+                    # Determine tag and content from matched groups
+                    groups = match.groups()
+                    if groups[1] is not None: tag, content = 'md_code_inline', groups[1]
+                    elif groups[3] is not None: tag, content = 'md_bold', groups[3]
+                    elif groups[5] is not None: tag, content = 'md_bold', groups[5]
+                    elif groups[7] is not None: tag, content = 'md_italic', groups[7]
+                    elif groups[9] is not None: tag, content = 'md_italic', groups[9]
+                    elif groups[11] is not None: tag, content = 'md_strikethrough', groups[11]
+                    else: continue
+
+                    current_tags = tuple(block_tags + [tag])
+                    display.insert(start_index, content, current_tags)
+                    last_end = end
+                
+                # Insert remaining text after the last match
+                if last_end < len(line):
+                    display.insert(start_index, line[last_end:], tuple(block_tags))
+                
+                # Insert newline
+                if i < len(lines) - 1:
+                    display.insert(start_index, '\n', tuple(block_tags))
+
+        except tk.TclError as e:
+            print(f"Markdown rendering error: {e}")
+            display.insert(start_index, text, base_tag)
+        finally:
+            display.mark_unset(start_mark_name)
+            display.mark_unset(end_mark_name)
 
     def save_and_apply_settings(self, chat_id):
         config_key = f'gemini_{chat_id}'
