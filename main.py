@@ -68,6 +68,7 @@ class GeminiChatApp:
         self.auto_reply_vars = {1: ctk.BooleanVar(value=False), 2: ctk.BooleanVar(value=False)}
         self.raw_log_displays = {}
         self.available_models = []
+        self.config_description_entry = None
 
         self.load_config()
         self.delay_var = ctk.StringVar(value=str(self.config.get("auto_reply_delay_minutes", 1.0)))
@@ -79,6 +80,10 @@ class GeminiChatApp:
         os.makedirs(self.log_dir, exist_ok=True)
 
         self.create_widgets()
+
+        # Apply the active configuration to the UI, but don't reset sessions yet
+        active_config = self.config['configurations'][self.config.get('active_config_index', 0)]
+        self._apply_config_to_ui(active_config, startup=True)
 
         try:
             self.available_models = self.fetch_available_models()
@@ -142,46 +147,98 @@ class GeminiChatApp:
 
     def load_config(self):
         self.config_file = 'config.json'
+
+        # Create a default list of 10 configuration profiles
+        configurations = []
+        for i in range(10):
+            profile = {
+                "name": f"Config {i}",
+                "description": "Default configuration" if i == 0 else "Empty",
+                "gemini_1": {
+                    "model": "gemini-2.5-pro",
+                    "system_prompt": "You are Gemini 1, a helpful and concise assistant.",
+                    "temperature": 0.7,
+                    "top_p": 1.0
+                },
+                "gemini_2": {
+                    "model": "gemini-2.5-pro",
+                    "system_prompt": "You are Gemini 2, a creative and detailed assistant.",
+                    "temperature": 0.7,
+                    "top_p": 1.0
+                }
+            }
+            configurations.append(profile)
+
         default_config = {
-            "api_key": "PASTE_YOUR_GEMINI_API_KEY_HERE", "auto_reply_delay_minutes": 1.0,
-            "default_model_1": "gemini-1.5-pro-latest", "default_model_2": "gemini-1.5-flash-latest",
-            "preferred_models": ["gemini-1.5-pro-latest", "gemini-1.5-flash-latest", "gemini-pro"],
-            "gemini_1": {"system_prompt": "You are Gemini 1, a helpful and concise assistant.", "temperature": 0.7, "top_p": 1.0},
-            "gemini_2": {"system_prompt": "You are Gemini 2, a creative and detailed assistant.", "temperature": 0.7, "top_p": 1.0}
+            "api_key": "PASTE_YOUR_GEMINI_API_KEY_HERE",
+            "auto_reply_delay_minutes": 1.0,
+            "active_config_index": 0,
+            "preferred_models": ["gemini-2.5-pro", "gemini-2.5-flash"],
+            "configurations": configurations
         }
+
         if not os.path.exists(self.config_file):
-            with open(self.config_file, 'w') as f: json.dump(default_config, f, indent=2)
+            with open(self.config_file, 'w') as f:
+                json.dump(default_config, f, indent=4)
             self.config = default_config
         else:
             try:
-                with open(self.config_file, 'r') as f: loaded_config = json.load(f)
+                with open(self.config_file, 'r') as f: self.config = json.load(f)
+                
+                config_changed = False
+                if 'configurations' not in self.config or not isinstance(self.config['configurations'], list):
+                    raise ValueError("Missing 'configurations' list, regenerating config.")
+
+                # Check each profile for the 'description' key and add it if missing
+                for profile in self.config['configurations']:
+                    if 'description' not in profile:
+                        profile['description'] = "Empty"
+                        config_changed = True
+                
+                if config_changed:
+                    self._save_config_to_file(self.config)
+
+            except (json.JSONDecodeError, KeyError, ValueError):
+                # If file is corrupt, old format, or fails validation, overwrite with new default
+                with open(self.config_file, 'w') as f:
+                    json.dump(default_config, f, indent=4)
                 self.config = default_config
-                self.config.update(loaded_config)
-            except json.JSONDecodeError: self.config = default_config
 
     def _save_config_to_file(self, config_data):
         with open(self.config_file, 'w') as f: json.dump(config_data, f, indent=2)
 
-    def prime_chat_session(self, chat_id, from_event=False, history=None):
+    def prime_chat_session(self, chat_id, from_event=False, history=None, system_prompt=None):
         if not self.available_models:
             messagebox.showerror("No Models Loaded", "Cannot start a chat session. Please set a valid API key first.")
             return
         try:
             model_name = self.model_selectors[chat_id].get()
-            config_key = f'gemini_{chat_id}'
-            self.temp_vars[chat_id].set(self.config[config_key]['temperature'])
-            self.topp_vars[chat_id].set(self.config[config_key]['top_p'])
-            generation_config = genai.types.GenerationConfig(temperature=self.temp_vars[chat_id].get(), top_p=self.topp_vars[chat_id].get())
-            model = genai.GenerativeModel(model_name, generation_config=generation_config)
-            initial_history = history if history else [{'role': 'user', 'parts': [self.options_prompts[chat_id].get("1.0", tk.END).strip()]}, {'role': 'model', 'parts': ["Understood."]}]
-            self.chat_sessions[chat_id] = model.start_chat(history=initial_history)
+
+            active_config_index = self.config.get('active_config_index', 0)
+            active_profile = self.config['configurations'][active_config_index]
+            agent_config = active_profile[f'gemini_{chat_id}']
+
+            generation_config = genai.types.GenerationConfig(temperature=agent_config['temperature'])
+            
+            sys_prompt = system_prompt if system_prompt is not None else self.options_prompts[chat_id].get("1.0", tk.END).strip()
+            
+            model = genai.GenerativeModel(model_name, system_instruction=sys_prompt, generation_config=generation_config)
+            
+            self.chat_sessions[chat_id] = model.start_chat(history=history or [])
+            
             self.total_tokens[chat_id] = 0
             self.update_token_counts(chat_id, None, True)
-            if from_event and not history:
-                self.chat_displays[chat_id].delete('1.0', tk.END)
-                self.append_message(chat_id, f"--- Session reset with model: {model_name} ---", "system")
+            
+            if from_event:
+                if not history:
+                    self.chat_displays[chat_id].delete('1.0', tk.END)
+                    if self.raw_log_displays.get(chat_id):
+                        self.raw_log_displays[chat_id].delete('1.0', tk.END)
+                    self.append_message(chat_id, f"# --- Session reset with model: {model_name} ---", "system")
                 self._remove_all_files(chat_id)
-        except Exception as e: messagebox.showerror("Model Error", f"Failed to start chat for Gemini {chat_id}. Error: {e}")
+                
+        except Exception as e: 
+            messagebox.showerror("Model Error", f"Failed to start chat for Gemini {chat_id}. Error: {e}")
     
     def create_widgets(self):
         self.root.grid_columnconfigure(1, weight=1); self.root.grid_rowconfigure(0, weight=1)
@@ -270,15 +327,40 @@ class GeminiChatApp:
         toggle_frame = ctk.CTkFrame(sidebar, fg_color="transparent"); toggle_frame.pack(fill="x", pady=5, padx=5)
         self.right_toggle_button = ctk.CTkButton(toggle_frame, text="▶", command=self._toggle_right_sidebar, width=25, height=25, font=self.FONT_GENERAL); self.right_toggle_button.pack(anchor="nw")
         sidebar.content_frame = ctk.CTkScrollableFrame(sidebar, fg_color="transparent"); sidebar.content_frame.pack(fill="both", expand=True)
-        ctk.CTkLabel(sidebar.content_frame, text="CONFIGURATION", font=ctk.CTkFont(family="Roboto", size=18, weight="bold"), text_color=self.COLOR_TEXT).pack(pady=(0,20), padx=20, anchor="w")
+        ctk.CTkLabel(sidebar.content_frame, text="CONFIGURATION", font=ctk.CTkFont(family="Roboto", size=18, weight="bold"), text_color=self.COLOR_TEXT).pack(pady=(0,10), padx=20, anchor="w")
+
+        # --- Configuration Profile Selector ---
+        config_selector_frame = ctk.CTkFrame(sidebar.content_frame, fg_color="transparent")
+        config_selector_frame.pack(fill="x", padx=15, pady=(0, 10))
+        config_selector_frame.grid_columnconfigure(0, weight=1)
+
+        # Format dropdown values as "Name | Description"
+        config_display_names = [f"{c['name']} | {c['description']}" for c in self.config.get('configurations', [])]
+        active_display_name = config_display_names[self.config.get('active_config_index', 0)]
+        self.config_selector_var = ctk.StringVar(value=active_display_name)
+        
+        self.config_selector = ctk.CTkComboBox(config_selector_frame, values=config_display_names, variable=self.config_selector_var, command=self._on_config_select, state="readonly")
+        self.config_selector.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 5))
+
+        # Add description entry box
+        ctk.CTkLabel(config_selector_frame, text="Description:", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).grid(row=1, column=0, sticky="w", pady=(5,0))
+        self.config_description_entry = ctk.CTkEntry(config_selector_frame, font=self.FONT_GENERAL)
+        self.config_description_entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 5))
+
+        ctk.CTkButton(config_selector_frame, text="Save to Active Config", command=self._save_current_config).grid(row=3, column=0, columnspan=2, sticky="ew")
+        
+        # Add a separator
+        ctk.CTkFrame(sidebar.content_frame, height=1, fg_color=self.COLOR_BORDER).pack(fill="x", padx=15, pady=10)
+
+
         model_frame = ctk.CTkFrame(sidebar.content_frame, fg_color="transparent"); model_frame.pack(fill="x", padx=15, pady=5); model_frame.grid_columnconfigure(0, weight=1)
         model_list = self._create_model_list_for_dropdown()
         ctk.CTkLabel(model_frame, text="Gemini 1 Model", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).grid(row=0, column=0, sticky="w")
         self.model_selectors[1] = ctk.CTkComboBox(model_frame, values=model_list, command=lambda e, c=1: self.on_model_change(c), font=self.FONT_GENERAL, dropdown_font=self.FONT_GENERAL, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, button_color=self.COLOR_WIDGET_BG, dropdown_fg_color=self.COLOR_WIDGET_BG, state="readonly")
-        self.model_selectors[1].set(self.config.get("default_model_1")); self.model_selectors[1].grid(row=1, column=0, pady=(0,10), sticky="ew")
+        self.model_selectors[1].grid(row=1, column=0, pady=(0,10), sticky="ew")
         ctk.CTkLabel(model_frame, text="Gemini 2 Model", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).grid(row=2, column=0, sticky="w")
         self.model_selectors[2] = ctk.CTkComboBox(model_frame, values=model_list, command=lambda e, c=2: self.on_model_change(c), font=self.FONT_GENERAL, dropdown_font=self.FONT_GENERAL, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, button_color=self.COLOR_WIDGET_BG, dropdown_fg_color=self.COLOR_WIDGET_BG, state="readonly")
-        self.model_selectors[2].set(self.config.get("default_model_2")); self.model_selectors[2].grid(row=3, column=0, pady=(0,10), sticky="ew")
+        self.model_selectors[2].grid(row=3, column=0, pady=(0,10), sticky="ew")
         config_frame = ctk.CTkFrame(sidebar.content_frame, fg_color="transparent"); config_frame.pack(fill="x", padx=15, pady=(10,5)); config_frame.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(config_frame, text="Auto-Reply Delay (min)", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).grid(row=0, column=0, sticky="w")
         ctk.CTkEntry(config_frame, textvariable=self.delay_var, width=50, font=self.FONT_GENERAL, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, border_width=1).grid(row=0, column=1, sticky="w", padx=10)
@@ -295,15 +377,12 @@ class GeminiChatApp:
         return self.available_models
 
     def _create_model_settings_panel(self, parent, chat_id):
-        config_key = f'gemini_{chat_id}'
         content = self._create_collapsible_frame(parent, f"Gemini {chat_id} Settings")
         ctk.CTkLabel(content, text="System Instructions", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).pack(anchor='w', padx=5, pady=(5,0))
         self.options_prompts[chat_id] = ctk.CTkTextbox(content, height=100, wrap="word", font=self.FONT_CHAT, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, border_width=1)
-        self.options_prompts[chat_id].insert('1.0', self.config[config_key]['system_prompt'])
-        self.options_prompts[chat_id].pack(fill="x", padx=5, pady=2, expand=True)
+        self.options_prompts[chat_id].pack(fill="both", padx=5, pady=2, expand=True)
         params_frame = ctk.CTkFrame(content, fg_color="transparent"); params_frame.pack(fill='x', padx=5, pady=5)
-        self.temp_labels[chat_id] = ctk.CTkLabel(params_frame, text=f"Temperature: {self.config[config_key]['temperature']:.2f}", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED); self.temp_labels[chat_id].pack(side='left')
-        self.temp_vars[chat_id].set(self.config[config_key]['temperature'])
+        self.temp_labels[chat_id] = ctk.CTkLabel(params_frame, text="Temperature: 0.00", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED); self.temp_labels[chat_id].pack(side='left')
         ctk.CTkSlider(params_frame, from_=0, to=1, variable=self.temp_vars[chat_id], command=lambda v, c=chat_id: self.update_slider_label(c, 'temp')).pack(side='left', fill='x', expand=True, padx=5)
         ctk.CTkLabel(content, text="Files", font=self.FONT_SMALL, text_color=self.COLOR_TEXT_MUTED).pack(anchor='w', padx=5, pady=(5,0))
         file_frame = ctk.CTkFrame(content, fg_color=self.COLOR_WIDGET_BG, border_color=self.COLOR_BORDER, border_width=1); file_frame.pack(fill="both", expand=True, padx=5, pady=5)
@@ -313,7 +392,6 @@ class GeminiChatApp:
         ctk.CTkButton(file_buttons, text="+", command=lambda c=chat_id: self._open_file_dialog(c), font=self.FONT_GENERAL, width=40).pack(side="left", expand=True, padx=2)
         ctk.CTkButton(file_buttons, text="-", command=lambda c=chat_id: self._remove_selected_files(c), font=self.FONT_GENERAL, width=40).pack(side="left", expand=True, padx=2)
         ctk.CTkButton(file_buttons, text="x", command=lambda c=chat_id: self._remove_all_files(c), font=self.FONT_GENERAL, width=40).pack(side="left", expand=True, padx=2)
-        ctk.CTkButton(content, text="Save & Reset Session", command=lambda c=chat_id: self.save_and_apply_settings(c), font=self.FONT_GENERAL).pack(fill="x", padx=5, pady=5)
 
     def _create_collapsible_frame(self, parent, text):
         container = ctk.CTkFrame(parent, fg_color="transparent"); container.pack(fill="x", padx=5, pady=2)
@@ -546,16 +624,80 @@ class GeminiChatApp:
             display.mark_unset(start_mark_name)
             display.mark_unset(end_mark_name)
 
-    def save_and_apply_settings(self, chat_id):
-        config_key = f'gemini_{chat_id}'
-        self.config[config_key]['system_prompt'] = self.options_prompts[chat_id].get("1.0", tk.END).strip()
-        self.config[config_key]['temperature'] = self.temp_vars[chat_id].get()
-        self.config[config_key]['top_p'] = self.topp_vars[chat_id].get()
-        try: self.config["auto_reply_delay_minutes"] = float(self.delay_var.get())
-        except ValueError: messagebox.showwarning("Warning", "Invalid delay value. It was not saved.")
+    def _apply_config_to_ui(self, config_profile, startup=False):
+        """Updates all UI controls based on the provided config profile."""
+        # Config description
+        if self.config_description_entry:
+            self.config_description_entry.delete(0, tk.END)
+            self.config_description_entry.insert(0, config_profile.get("description", ""))
+
+        # Gemini 1
+        g1_config = config_profile['gemini_1']
+        self.model_selectors[1].set(g1_config['model'])
+        self.options_prompts[1].delete("1.0", tk.END)
+        self.options_prompts[1].insert("1.0", g1_config['system_prompt'])
+        self.temp_vars[1].set(g1_config['temperature'])
+        self.update_slider_label(1, 'temp')
+
+        # Gemini 2
+        g2_config = config_profile['gemini_2']
+        self.model_selectors[2].set(g2_config['model'])
+        self.options_prompts[2].delete("1.0", tk.END)
+        self.options_prompts[2].insert("1.0", g2_config['system_prompt'])
+        self.temp_vars[2].set(g2_config['temperature'])
+        self.update_slider_label(2, 'temp')
+
+        if not startup:
+            if messagebox.askyesno("Confirm", "Applying a new configuration will reset both chat sessions. Continue?"):
+                for chat_id in [1, 2]:
+                    self.prime_chat_session(chat_id, from_event=True)
+
+    def _on_config_select(self, choice_string):
+        """Handles selection of a new configuration profile from the dropdown."""
+        choice_name = choice_string.split(' | ')[0]
+        new_index = next((i for i, conf in enumerate(self.config['configurations']) if conf['name'] == choice_name), None)
+        if new_index is None: return
+
+        self.config['active_config_index'] = new_index
+        
+        selected_profile = self.config['configurations'][new_index]
+        self._apply_config_to_ui(selected_profile)
+
+    def _save_current_config(self):
+        """Saves the current UI settings to the active configuration profile."""
+        active_index = self.config.get('active_config_index', 0)
+        
+        # Read all settings from the UI
+        current_settings = {
+            "name": f"Config {active_index}", # Name is fixed
+            "description": self.config_description_entry.get(),
+            "gemini_1": {
+                "model": self.model_selectors[1].get(),
+                "system_prompt": self.options_prompts[1].get("1.0", tk.END).strip(),
+                "temperature": 1.0
+            },
+            "gemini_2": {
+                "model": self.model_selectors[2].get(),
+                "system_prompt": self.options_prompts[2].get("1.0", tk.END).strip(),
+                "temperature": 1.0
+            }
+        }
+        
+        # Update the config data and save to file
+        self.config['configurations'][active_index] = current_settings
+        self.config['active_config_index'] = active_index # Ensure active index is saved
         self._save_config_to_file(self.config)
-        messagebox.showinfo("Saved", f"Settings for Gemini {chat_id} saved. Resetting its session to apply.")
-        self.prime_chat_session(chat_id, from_event=True)
+        
+        # Update the text in the dropdown to reflect the new description
+        config_display_names = [f"{c['name']} | {c['description']}" for c in self.config.get('configurations', [])]
+        self.config_selector.configure(values=config_display_names)
+        self.config_selector_var.set(config_display_names[active_index])
+
+        messagebox.showinfo("Saved", f"Current settings have been saved to 'Config {active_index}'.")
+
+        if messagebox.askyesno("Apply Settings", "Settings saved. Do you want to apply them now by resetting the chat sessions?"):
+            for chat_id in [1, 2]:
+                self.prime_chat_session(chat_id, from_event=True)
 
     def update_slider_label(self, chat_id, param_type):
         if param_type == 'temp': self.temp_labels[chat_id].configure(text=f"Temperature: {self.temp_vars[chat_id].get():.2f}")
