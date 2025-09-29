@@ -13,9 +13,21 @@ A Python-based desktop application for interacting with Google's Gemini AI model
 - **File Attachments**: Attach and send local files (text, images, etc.) to the models.
 - **Session Management**: Save and load the complete state of an agent (model, system prompt, history) to a JSON file.
 - **Real-time Token Counts**: Monitor token usage for the last turn and the total session for each agent.
-- **Improved Markdown Rendering**: Responses are rendered with improved markdown support for headings, blockquotes, code blocks, bold, italic, and strikethrough text.
+- **Improved Markdown Rendering**: Responses are rendered with improved markdown support for headings, blockquotes, code blocks, bold, italic, and strikethrough text, using inline styles for better compatibility with the display component.
+- **Fixed Doubled Input**: Resolved an issue where user input messages would sometimes appear twice in the chat display.
+- **Robust Gemini API Content Handling**: Improved the internal handling of message objects from the Gemini API for more stable chat history management.
 - **Separated Conversation Logging**: All interactions for each agent are automatically saved to a separate, timestamped session log file.
 - **UI Conveniences**: Features collapsible sidebars (left sidebar collapsed by default) and a configurable minimum window size (1000x800) for a better user experience.
+
+## Known Issues
+
+- **Text Selection**: Due to limitations of the `tkhtmlview.HTMLLabel` component, selecting and copying text directly from the chat display may not work reliably.
+
+---
+
+## 已知问题
+
+- **文本选择**: 由于 `tkhtmlview.HTMLLabel` 组件的限制，直接从聊天显示中选择和复制文本可能无法可靠工作。
 
 ## Setup and Installation
 
@@ -92,7 +104,9 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
 - **文件附件**: 将本地文件（文本、图像等）附加并发送到模型。
 - **会话管理**: 将智能体的完整状态（模型、系统提示、历史记录）保存和加载到 JSON 文件。
 - **实时令牌计数**: 监控每个智能体上一轮和整个会话的令牌使用情况。
-- **改进的 Markdown 渲染**: 响应以改进的 Markdown 格式呈现，支持标题、引用块、代码块、粗体、斜体和删除线文本。
+- **改进的 Markdown 渲染**: 响应以改进的 Markdown 格式呈现，支持标题、引用块、代码块、粗体、斜体和删除线文本，使用内联样式以更好地兼容显示组件。
+- **修复了重复输入问题**: 解决了用户输入消息有时会在聊天显示中出现两次的问题。
+- **健壮的 Gemini API 内容处理**: 改进了 Gemini API 消息对象的内部处理，以实现更稳定的聊天历史管理。
 - **分离的对话日志**: 每个智能体的所有交互都会自动保存到一个独立的、带时间戳的会话日志文件中。
 - **界面便利功能**: 具有可折叠的侧边栏（左侧边栏默认折叠）和可配置的最小窗口尺寸（1000x800），以提供更好的用户体验。
 

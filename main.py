@@ -15,6 +15,8 @@ import re
 import uuid
 import time
 import math
+from tkhtmlview import HTMLLabel
+from markdown_it import MarkdownIt
 
 class GeminiChatApp:
     def __init__(self, root):
@@ -32,8 +34,8 @@ class GeminiChatApp:
         self.COLOR_INPUT_AREA = "#282A2E"
         self.COLOR_CHAT_DISPLAY = "#1E1F22"
         self.COLOR_WIDGET_BG = "#3C3F44"
-        self.COLOR_TEXT = "#E0E1E1"
-        self.COLOR_TEXT_MUTED = "#9A9B9E"
+        self.COLOR_TEXT = "#FFFFFF"
+        self.COLOR_TEXT_MUTED = "#B0B0B0"
         self.COLOR_TEXT_SELECTED = "#FFFFFF"
         self.COLOR_BORDER = "#4E5157"
         self.FONT_GENERAL = ctk.CTkFont(family="Roboto", size=14)
@@ -69,6 +71,7 @@ class GeminiChatApp:
         self.raw_log_displays = {}
         self.available_models = []
         self.config_description_entry = None
+        self.md = MarkdownIt()
 
         self.load_config()
         self.delay_var = ctk.StringVar(value=str(self.config.get("auto_reply_delay_minutes", 1.0)))
@@ -231,10 +234,12 @@ class GeminiChatApp:
             
             if from_event:
                 if not history:
-                    self.chat_displays[chat_id].delete('1.0', tk.END)
                     if self.raw_log_displays.get(chat_id):
                         self.raw_log_displays[chat_id].delete('1.0', tk.END)
-                    self.append_message(chat_id, f"# --- Session reset with model: {model_name} ---", "system")
+                    system_msg = f"# --- Session reset with model: {model_name} ---"
+                    self.chat_sessions[chat_id].history.append({'role': 'model', 'parts': [{'text': system_msg}]})
+                    self.append_message(chat_id, system_msg, "system")
+                    self._render_chat_display(chat_id)
                 self._remove_all_files(chat_id)
                 
         except Exception as e: 
@@ -296,9 +301,11 @@ class GeminiChatApp:
     def _create_chat_panel(self, parent, chat_id):
         parent.grid_columnconfigure(0, weight=1); parent.grid_rowconfigure(0, weight=1)
         
-        self.chat_displays[chat_id] = ctk.CTkTextbox(parent, wrap="word", font=self.FONT_CHAT, state='normal', fg_color=self.COLOR_CHAT_DISPLAY, border_width=0, text_color=self.COLOR_TEXT)
+        # Use HTMLLabel for rich text display
+        self.chat_displays[chat_id] = HTMLLabel(parent, background=self.COLOR_CHAT_DISPLAY, foreground=self.COLOR_TEXT, font=(self.FONT_CHAT.cget("family"), self.FONT_CHAT.cget("size")))
         self.chat_displays[chat_id].grid(row=0, column=0, sticky="nsew")
-        self._setup_highlighting_tags(self.chat_displays[chat_id])
+        self.chat_displays[chat_id].configure(state='normal')
+
 
         input_frame = ctk.CTkFrame(parent, fg_color=self.COLOR_INPUT_AREA); input_frame.grid(row=1, column=0, pady=(5, 0), sticky="ew"); input_frame.grid_columnconfigure(0, weight=1)
         
@@ -414,10 +421,6 @@ class GeminiChatApp:
         else:
             msg = message_text.strip()
 
-        tag = "autoreply" if is_auto_reply else "user"
-        label = f"Gemini {2 if chat_id == 1 else 1} (Auto):" if is_auto_reply else "You:"
-        self.append_message(chat_id, label, tag, msg)
-        
         self._start_api_call(chat_id, msg)
         return "break"
 
@@ -439,23 +442,18 @@ class GeminiChatApp:
 
             if msg_type == 'stream_start':
                 label = f"Gemini {chat_id}:"
-                if display:
-                    display.insert(tk.END, f"\n---\n# {label}\n", (f"gemini{chat_id}", "speaker_bold"))
-                    display.mark_set(f"stream_start_{chat_id}", tk.INSERT); display.mark_gravity(f"stream_start_{chat_id}", "left")
                 if raw_display:
                     raw_display.insert(tk.END, f"\n---\n# {label}\n")
                     raw_display.see(tk.END)
 
             elif msg_type == 'stream_chunk':
-                if display:
-                    display.insert(tk.END, msg['text']); display.see(tk.END)
                 if raw_display:
                     raw_display.insert(tk.END, msg['text']); raw_display.see(tk.END)
 
             elif msg_type == 'stream_end':
                 full_response_text = msg.get('full_text', '')
                 if display:
-                    self.highlight_markdown(chat_id, full_response_text)
+                    self._render_chat_display(chat_id)
                 
                 self.restore_ui_after_response(chat_id)
                 if msg.get('usage'): self.update_token_counts(chat_id, msg['usage'])
@@ -466,7 +464,15 @@ class GeminiChatApp:
                     self._schedule_follow_up(target_id, full_response_text)
             elif msg_type in ['error', 'info']:
                 self.restore_ui_after_response(chat_id)
+                # Add system/error message to session history
+                role = 'model' # Treat system/error messages as coming from the model for display purposes
+                self.chat_sessions[chat_id].history.append({'role': role, 'parts': [{'text': msg['text']}]})
+                
+                # Update raw log display
                 self.append_message(chat_id, msg['text'], 'system' if msg_type == 'info' else 'error')
+
+                # Update formatted display
+                self._render_chat_display(chat_id)
         except queue.Empty: pass
         finally: self.root.after(100, self.process_queue)
 
@@ -476,17 +482,26 @@ class GeminiChatApp:
             if delay_minutes < 0: raise ValueError
             delay_seconds = delay_minutes * 60
             if delay_seconds > 0:
-                self.append_message(target_id, f"--- Auto-replying in {delay_seconds:.1f} seconds... ---", "system")
+                system_msg = f"--- Auto-replying in {delay_seconds:.1f} seconds... ---"
+                self.chat_sessions[target_id].history.append({'role': 'model', 'parts': [{'text': system_msg}]})
+                self.append_message(target_id, system_msg, "system")
+                self._render_chat_display(target_id)
                 self.root.after(int(delay_seconds * 1000), lambda: self.send_message(target_id, message))
             else: self.send_message(target_id, message)
         except (ValueError, TypeError):
-            self.append_message(target_id, "--- Invalid auto-reply delay. Sending immediately. ---", "error")
+            system_msg = "--- Invalid auto-reply delay. Sending immediately. ---"
+            self.chat_sessions[target_id].history.append({'role': 'model', 'parts': [{'text': system_msg}]})
+            self.append_message(target_id, system_msg, "error")
+            self._render_chat_display(target_id)
             self.send_message(target_id, message)
         
     def stop_generation(self, chat_id):
         self.current_generation_id[chat_id] += 1
         self.restore_ui_after_response(chat_id)
-        self.append_message(chat_id, "\n--- Generation stopped by user. ---\n", "system")
+        system_msg = "\n--- Generation stopped by user. ---\n"
+        self.chat_sessions[chat_id].history.append({'role': 'model', 'parts': [{'text': system_msg}]})
+        self.append_message(chat_id, system_msg, "system")
+        self._render_chat_display(chat_id)
 
     def update_ui_for_sending(self, chat_id):
         self.user_inputs[chat_id].configure(state='disabled'); self.send_buttons[chat_id].configure(state='disabled')
@@ -497,13 +512,6 @@ class GeminiChatApp:
         self.stop_buttons[chat_id].configure(state='disabled'); self.progress_bars[chat_id].stop(); self.progress_bars[chat_id].grid_remove(); self.user_inputs[chat_id].focus_set()
 
     def append_message(self, chat_id, label, tag, content=""):
-        # Formatted display
-        display = self.chat_displays.get(chat_id)
-        if display: 
-            display.insert(tk.END, f"\n---\n# {label}\n", (tag, "speaker_bold"))
-            display.insert(tk.END, content, tag)
-            display.see(tk.END)
-        
         # Raw display
         raw_display = self.raw_log_displays.get(chat_id)
         if raw_display:
@@ -513,9 +521,11 @@ class GeminiChatApp:
     
     def new_session(self):
         for chat_id in [1, 2]:
-            self.chat_displays[chat_id].delete('1.0', tk.END)
             self.prime_chat_session(chat_id, from_event=True)
-            self.append_message(chat_id, "--- New session started. ---", "system")
+            system_msg = "--- New session started. ---"
+            self.chat_sessions[chat_id].history.append({'role': 'model', 'parts': [{'text': system_msg}]})
+            self.append_message(chat_id, system_msg, "system")
+            self._render_chat_display(chat_id)
         self.delay_var.set(str(self.config.get("auto_reply_delay_minutes", 1.0)))
 
     def update_token_counts(self, chat_id, usage_metadata, reset=False):
@@ -524,105 +534,63 @@ class GeminiChatApp:
         last = usage_metadata.get('prompt_token_count', 0) + usage_metadata.get('candidates_token_count', 0)
         self.total_tokens[chat_id] += last; self.token_info_vars[chat_id].set(f"Tokens: {last} | {self.total_tokens[chat_id]}")
     
-    def _setup_highlighting_tags(self, display_widget):
-        display_widget.tag_config("user", foreground="#A9DFBF"); display_widget.tag_config("gemini1", foreground="#A9CCE3"); display_widget.tag_config("gemini2", foreground="#D2B4DE")
-        display_widget.tag_config("system", foreground=self.COLOR_TEXT_MUTED); display_widget.tag_config("autoreply", foreground="#D4AC0D"); display_widget.tag_config("error", foreground="#F5B7B1")
-        display_widget.tag_config("speaker_bold", foreground=self.COLOR_TEXT_SELECTED)
-        # Cannot use 'font' with CTkTextbox tags due to scaling incompatibility. Using colors and underline instead.
-        display_widget.tag_config("md_bold", foreground="#A9DFBF")
-        display_widget.tag_config("md_italic", foreground="#D2B4DE")
-        display_widget.tag_config("md_strikethrough", overstrike=True)
-        display_widget.tag_config("md_code_inline", foreground="#FAD7A0", background="#2B2B2B")
-        display_widget.tag_config("md_code_block", background="#2B2B2B", lmargin1=20, lmargin2=20, rmargin=20)
-        display_widget.tag_config("md_h1", foreground="#85C1E9", underline=True)
-        display_widget.tag_config("md_h2", foreground="#85C1E9")
-        display_widget.tag_config("md_h3", foreground="#A9CCE3")
-        display_widget.tag_config("md_blockquote", lmargin1=20, foreground="#B2BABB")
+    def _render_chat_display(self, chat_id):
+        """Renders the entire chat history for a given chat_id to its HTMLLabel."""
+        if chat_id not in self.chat_sessions or not hasattr(self.chat_sessions[chat_id], 'history'):
+            return
 
-    def highlight_markdown(self, chat_id, text):
-        display = self.chat_displays[chat_id]
-        start_mark_name = f"stream_start_{chat_id}"
-        end_mark_name = f"stream_end_{chat_id}"
-        try:
-            display.mark_set(end_mark_name, tk.INSERT)
-            start_index = display.index(start_mark_name)
-            display.delete(start_index, end_mark_name)
+        display_widget = self.chat_displays[chat_id]
+        display_widget.delete("1.0", tk.END) # Clear existing content
+
+        history = self.chat_sessions[chat_id].history
+        # Basic CSS for styling the chat
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="background-color: #1E1F22; color: #FFFFFF; font-family: Consolas, monaco, monospace;">
+        """
+        for message in history:
+            # The first message is the system prompt, which we don't display
+            if message == history[0]:
+                continue
+
+            # Determine how to access role and parts based on message type
+            if isinstance(message, dict):
+                msg_role = message['role']
+                msg_parts = message['parts']
+                full_text = "".join([p['text'] for p in msg_parts if 'text' in p])
+            else: # Assume it's a genai.types.Content object
+                msg_role = message.role
+                msg_parts = message.parts
+                full_text = "".join([p.text for p in msg_parts if hasattr(p, 'text')])
+
+            content_html = self.md.render(full_text)
+
+            # Post-process content_html to add inline styles to <pre> and <code> tags
+            pre_style = "background-color: #2B2B2B; padding: 10px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word;"
+            code_style = "font-family: Consolas, monaco, monospace;" # Inherited from body, but good to be explicit
+
+            # Apply style to <pre> tags
+            content_html = re.sub(r'<pre>(.*?)</pre>', r'<pre style="' + pre_style + r'">\1</pre>', content_html, flags=re.DOTALL)
+            # Apply style to <code> tags (only if not inside <pre> already, or if it's inline code)
+            # For simplicity, let's apply it to all <code> tags.
+            content_html = re.sub(r'<code>(.*?)</code>', r'<code style="' + code_style + r'">\1</code>', content_html, flags=re.DOTALL)
+
+            role_color = "#A9DFBF" if msg_role == 'user' else "#A9CCE3"
+            role_name = "You" if msg_role == 'user' else f"Gemini {chat_id}"
             
-            # Set the insertion cursor to the start of the deleted section
-            display.mark_set(tk.INSERT, start_index)
-            
-            base_tag = f"gemini{chat_id}"
-            
-            lines = text.split('\n')
-            in_code_block = False
-            
-            inline_pattern = re.compile(r'(`(.*?)`)|(\*\*(.*?)\*\*)|(__(.*?)__)|(\*(.*?)\*)|(_(.*?)_)|(~~(.*?)~~)')
+            html_content += f'''
+            <div style="margin-bottom: 1em; color: #FFFFFF;">
+                <b style="font-weight: bold; color: {role_color};">{role_name}:</b>
+                {content_html}
+            </div>
+            '''
 
-            for i, line in enumerate(lines):
-                # Code blocks override all other formatting
-                if line.startswith("```"):
-                    in_code_block = not in_code_block
-                    if not in_code_block:
-                        display.insert(tk.INSERT, '\n') # Add a newline for spacing after a code block
-                    continue
-                if in_code_block:
-                    display.insert(tk.INSERT, line + '\n', (base_tag, "md_code_block"))
-                    continue
-
-                # --- Block Elements ---
-                block_tags = [base_tag]
-                if line.startswith('# '):
-                    block_tags.append('md_h1')
-                    line = line[2:]
-                elif line.startswith('## '):
-                    block_tags.append('md_h2')
-                    line = line[3:]
-                elif line.startswith('### '):
-                    block_tags.append('md_h3')
-                    line = line[4:]
-                elif line.startswith('> '):
-                    block_tags.append('md_blockquote')
-                    line = line[2:]
-                elif line.strip().startswith('* ') or line.strip().startswith('- '):
-                    line = re.sub(r'^\s*[-*]\s', '  • ', line)
-
-                # --- Inline Elements ---
-                last_end = 0
-                for match in inline_pattern.finditer(line):
-                    start, end = match.span()
-                    
-                    # Insert text before the match
-                    if start > last_end:
-                        display.insert(tk.INSERT, line[last_end:start], tuple(block_tags))
-                    
-                    # Determine tag and content from matched groups
-                    groups = match.groups()
-                    if groups[1] is not None: tag, content = 'md_code_inline', groups[1]
-                    elif groups[3] is not None: tag, content = 'md_bold', groups[3]
-                    elif groups[5] is not None: tag, content = 'md_bold', groups[5]
-                    elif groups[7] is not None: tag, content = 'md_italic', groups[7]
-                    elif groups[9] is not None: tag, content = 'md_italic', groups[9]
-                    elif groups[11] is not None: tag, content = 'md_strikethrough', groups[11]
-                    else: continue
-
-                    current_tags = tuple(block_tags + [tag])
-                    display.insert(tk.INSERT, content, current_tags)
-                    last_end = end
-                
-                # Insert remaining text after the last match
-                if last_end < len(line):
-                    display.insert(tk.INSERT, line[last_end:], tuple(block_tags))
-                
-                # Insert newline
-                if i < len(lines) - 1:
-                    display.insert(tk.INSERT, '\n', tuple(block_tags))
-
-        except tk.TclError as e:
-            print(f"Markdown rendering error: {e}")
-            display.insert(start_index, text, base_tag)
-        finally:
-            display.mark_unset(start_mark_name)
-            display.mark_unset(end_mark_name)
+        
+        html_content += "</body></html>"
+        self.chat_displays[chat_id].set_html(html_content)
+        self.chat_displays[chat_id].update_idletasks() # Ensure the view updates
+        self.chat_displays[chat_id].yview_moveto(1.0) # Scroll to bottom
 
     def _apply_config_to_ui(self, config_profile, startup=False):
         """Updates all UI controls based on the provided config profile."""
@@ -790,28 +758,15 @@ class GeminiChatApp:
             # 2. Prime the backend model with the full history
             self.prime_chat_session(chat_id, history=history, from_event=True)
 
-            # 3. Clear the UI displays
-            self.chat_displays[chat_id].delete("1.0", tk.END)
+            # 3. Clear the raw log display
             if self.raw_log_displays.get(chat_id):
                 self.raw_log_displays[chat_id].delete("1.0", tk.END)
 
-            # 4. Display the history in the UI, skipping the default priming messages
-            display_history = history
-            if (len(display_history) >= 2 and
-                display_history[0]['role'] == 'user' and
-                display_history[1]['role'] == 'model' and
-                display_history[1]['parts'] and display_history[1]['parts'][0] == 'Understood.'):
-                display_history = history[2:]
-
-            for message in display_history:
-                role = message.get('role')
-                text = message['parts'][0] if message.get('parts') and message['parts'] else ""
-                if role == 'user':
-                    self.append_message(chat_id, "You:", "user", text)
-                elif role == 'model':
-                    self.append_message(chat_id, f"Gemini {chat_id}:", f"gemini{chat_id}", text)
-
-            self.append_message(chat_id, f"--- Loaded session. History restored. ---", "system")
+            # 4. Add a system message to history and render
+            system_msg = f"--- Loaded session. History restored. ---"
+            self.chat_sessions[chat_id].history.append({'role': 'model', 'parts': [{'text': system_msg}]})
+            self.append_message(chat_id, system_msg, "system")
+            self._render_chat_display(chat_id)
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load session: {e}")
