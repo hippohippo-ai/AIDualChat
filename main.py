@@ -67,33 +67,73 @@ class GeminiChatApp:
         self.progress_bars = {}
         self.auto_reply_vars = {1: ctk.BooleanVar(value=False), 2: ctk.BooleanVar(value=False)}
         self.raw_log_displays = {}
+        self.available_models = []
 
         self.load_config()
         self.delay_var = ctk.StringVar(value=str(self.config.get("auto_reply_delay_minutes", 1.0)))
         
         self.api_key = self.config.get("api_key")
-        if not self.api_key or "PASTE_YOUR" in self.api_key:
-            self.prompt_for_api_key()
-            if not self.api_key or "PASTE_YOUR" in self.api_key:
-                messagebox.showerror("API Key Required", "An API key is required to run the application."); root.destroy(); return
-
-        try:
-            genai.configure(api_key=self.api_key)
-            self.available_models = self.fetch_available_models()
-        except Exception as e:
-            messagebox.showerror("API Error", f"Failed to connect. Check API key/internet.\n\nError: {e}"); root.destroy(); return
+        genai.configure(api_key=self.api_key)
 
         self.log_dir = "logs"
         os.makedirs(self.log_dir, exist_ok=True)
 
         self.create_widgets()
-        for chat_id in [1, 2]: self.prime_chat_session(chat_id)
+
+        try:
+            self.available_models = self.fetch_available_models()
+            self._update_model_dropdowns()
+        except Exception as e:
+            self.available_models = []
+            messagebox.showwarning("API Connection Error", 
+                                 f"Could not connect to Google AI, likely due to an invalid API key or a network issue. Please provide a valid key.")
+            self.prompt_for_api_key()
+
+        # Prime sessions only if models were loaded
+        if self.available_models:
+            for chat_id in [1, 2]: self.prime_chat_session(chat_id)
+            
         self.process_queue()
 
     def prompt_for_api_key(self):
         dialog = ctk.CTkInputDialog(text="Please enter your Gemini API Key:", title="API Key Required")
         key = dialog.get_input()
-        if key: self.api_key = key; self.config["api_key"] = key; self._save_config_to_file(self.config)
+        if not key:
+            return
+
+        try:
+            # Test the new key by fetching models
+            genai.configure(api_key=key)
+            self.available_models = self.fetch_available_models()
+            
+            # If successful, save the key and re-initialize the app state
+            self.api_key = key
+            self.config["api_key"] = key
+            self._save_config_to_file(self.config)
+            
+            messagebox.showinfo("Success", "API Key is valid and has been updated. Re-initializing models.")
+            
+            self._update_model_dropdowns()
+            
+            for chat_id in [1, 2]:
+                self.prime_chat_session(chat_id, from_event=True)
+
+        except Exception as e:
+            messagebox.showerror("Invalid API Key", f"The provided API key is invalid or there was a network error.\n\nPlease try again.\n\nError: {e}")
+
+    def _update_model_dropdowns(self):
+        model_list = self._create_model_list_for_dropdown()
+        if not model_list:
+            return
+        for selector in self.model_selectors.values():
+            selector.configure(values=model_list)
+        
+        default1 = self.config.get("default_model_1")
+        default2 = self.config.get("default_model_2")
+        
+        # Set to default if available, otherwise fall back to the first model in the list
+        self.model_selectors[1].set(default1 if default1 in model_list else model_list[0])
+        self.model_selectors[2].set(default2 if default2 in model_list else model_list[0])
 
     def fetch_available_models(self):
         models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
@@ -123,6 +163,9 @@ class GeminiChatApp:
         with open(self.config_file, 'w') as f: json.dump(config_data, f, indent=2)
 
     def prime_chat_session(self, chat_id, from_event=False, history=None):
+        if not self.available_models:
+            messagebox.showerror("No Models Loaded", "Cannot start a chat session. Please set a valid API key first.")
+            return
         try:
             model_name = self.model_selectors[chat_id].get()
             config_key = f'gemini_{chat_id}'
@@ -291,7 +334,7 @@ class GeminiChatApp:
             if not msg: return "break"
             self.user_inputs[chat_id].delete("1.0", tk.END)
         else:
-            msg = message_text
+            msg = message_text.strip()
 
         tag = "autoreply" if is_auto_reply else "user"
         label = f"Gemini {2 if chat_id == 1 else 1} (Auto):" if is_auto_reply else "You:"
@@ -427,6 +470,9 @@ class GeminiChatApp:
             start_index = display.index(start_mark_name)
             display.delete(start_index, end_mark_name)
             
+            # Set the insertion cursor to the start of the deleted section
+            display.mark_set(tk.INSERT, start_index)
+            
             base_tag = f"gemini{chat_id}"
             
             lines = text.split('\n')
@@ -435,15 +481,14 @@ class GeminiChatApp:
             inline_pattern = re.compile(r'(`(.*?)`)|(\*\*(.*?)\*\*)|(__(.*?)__)|(\*(.*?)\*)|(_(.*?)_)|(~~(.*?)~~)')
 
             for i, line in enumerate(lines):
-                # Use a consistent newline character
-                line_plus_newline = line if i == len(lines) - 1 else line + '\n'
-                
                 # Code blocks override all other formatting
                 if line.startswith("```"):
                     in_code_block = not in_code_block
+                    if not in_code_block:
+                        display.insert(tk.INSERT, '\n') # Add a newline for spacing after a code block
                     continue
                 if in_code_block:
-                    display.insert(start_index, line_plus_newline, (base_tag, "md_code_block"))
+                    display.insert(tk.INSERT, line + '\n', (base_tag, "md_code_block"))
                     continue
 
                 # --- Block Elements ---
@@ -470,7 +515,7 @@ class GeminiChatApp:
                     
                     # Insert text before the match
                     if start > last_end:
-                        display.insert(start_index, line[last_end:start], tuple(block_tags))
+                        display.insert(tk.INSERT, line[last_end:start], tuple(block_tags))
                     
                     # Determine tag and content from matched groups
                     groups = match.groups()
@@ -483,16 +528,16 @@ class GeminiChatApp:
                     else: continue
 
                     current_tags = tuple(block_tags + [tag])
-                    display.insert(start_index, content, current_tags)
+                    display.insert(tk.INSERT, content, current_tags)
                     last_end = end
                 
                 # Insert remaining text after the last match
                 if last_end < len(line):
-                    display.insert(start_index, line[last_end:], tuple(block_tags))
+                    display.insert(tk.INSERT, line[last_end:], tuple(block_tags))
                 
                 # Insert newline
                 if i < len(lines) - 1:
-                    display.insert(start_index, '\n', tuple(block_tags))
+                    display.insert(tk.INSERT, '\n', tuple(block_tags))
 
         except tk.TclError as e:
             print(f"Markdown rendering error: {e}")
@@ -590,12 +635,44 @@ class GeminiChatApp:
         filepath = filedialog.askopenfilename(filetypes=[("JSON", "*.json")], title=f"Load Session into Gemini {chat_id}")
         if not filepath: return
         try:
-            with open(filepath, 'r', encoding='utf-8') as f: session_data = json.load(f)
+            with open(filepath, 'r', encoding='utf-8') as f:
+                session_data = json.load(f)
+
+            history = session_data.get('history', [])
+
+            # 1. Set the UI elements
             self.model_selectors[chat_id].set(session_data['model_name'])
-            self.options_prompts[chat_id].delete("1.0", tk.END); self.options_prompts[chat_id].insert("1.0", session_data['system_prompt'])
-            self.prime_chat_session(chat_id, history=session_data['history'], from_event=True)
+            self.options_prompts[chat_id].delete("1.0", tk.END)
+            self.options_prompts[chat_id].insert("1.0", session_data['system_prompt'])
+
+            # 2. Prime the backend model with the full history
+            self.prime_chat_session(chat_id, history=history, from_event=True)
+
+            # 3. Clear the UI displays
+            self.chat_displays[chat_id].delete("1.0", tk.END)
+            if self.raw_log_displays.get(chat_id):
+                self.raw_log_displays[chat_id].delete("1.0", tk.END)
+
+            # 4. Display the history in the UI, skipping the default priming messages
+            display_history = history
+            if (len(display_history) >= 2 and
+                display_history[0]['role'] == 'user' and
+                display_history[1]['role'] == 'model' and
+                display_history[1]['parts'] and display_history[1]['parts'][0] == 'Understood.'):
+                display_history = history[2:]
+
+            for message in display_history:
+                role = message.get('role')
+                text = message['parts'][0] if message.get('parts') and message['parts'] else ""
+                if role == 'user':
+                    self.append_message(chat_id, "You:", "user", text)
+                elif role == 'model':
+                    self.append_message(chat_id, f"Gemini {chat_id}:", f"gemini{chat_id}", text)
+
             self.append_message(chat_id, f"--- Loaded session. History restored. ---", "system")
-        except Exception as e: messagebox.showerror("Error", f"Failed to load session: {e}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load session: {e}")
 
     def log_conversation(self, chat_id, user, response):
         path = os.path.join(self.log_dir, f"session_{self.session_timestamp}_gemini_{chat_id}.txt")
