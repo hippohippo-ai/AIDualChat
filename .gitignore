@@ -5,3 +5,4 @@ main.zip
 item/
 main_with problem.py
 configa.json
+__pycache__/

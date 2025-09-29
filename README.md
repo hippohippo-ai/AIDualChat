@@ -18,6 +18,7 @@ A Python-based desktop application for interacting with Google's Gemini AI model
 - **Robust Gemini API Content Handling**: Improved the internal handling of message objects from the Gemini API for more stable chat history management.
 - **Separated Conversation Logging**: All interactions for each agent are automatically saved to a separate, timestamped session log file.
 - **UI Conveniences**: Features collapsible sidebars (left sidebar collapsed by default) and a configurable minimum window size (1000x800) for a better user experience.
+- **Improved Code Structure**: The application's codebase has been refactored into modular Python files (`config_manager.py`, `gemini_api.py`, `ui_elements.py`, `chat_core.py`) for enhanced organization, maintainability, and readability.
 
 ## Known Issues
 
@@ -109,6 +110,7 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
 - **健壮的 Gemini API 内容处理**: 改进了 Gemini API 消息对象的内部处理，以实现更稳定的聊天历史管理。
 - **分离的对话日志**: 每个智能体的所有交互都会自动保存到一个独立的、带时间戳的会话日志文件中。
 - **界面便利功能**: 具有可折叠的侧边栏（左侧边栏默认折叠）和可配置的最小窗口尺寸（1000x800），以提供更好的用户体验。
+- **改进的代码结构**: 应用程序的代码库已重构为模块化的 Python 文件（`config_manager.py`、`gemini_api.py`、`ui_elements.py`、`chat_core.py`），以增强组织性、可维护性和可读性。
 
 ## 设置与安装
 
