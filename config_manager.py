@@ -2,6 +2,7 @@ import json
 import os
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
+import tkinter as tk
 
 class ConfigManager:
     def __init__(self, app_instance):
@@ -163,9 +164,19 @@ class ConfigManager:
                 self.app.gemini_api.prime_chat_session(chat_id, from_event=True)
 
     def _save_display_settings(self):
+        try:
+            chat_font_size = self.app.chat_font_size_var.get()
+        except tk.TclError:
+            chat_font_size = 8 # Default value if error
+        
+        try:
+            speaker_font_size = self.app.speaker_font_size_var.get()
+        except tk.TclError:
+            speaker_font_size = 12 # Default value if error
+
         display_settings = {
-            "chat_font_size": self.app.chat_font_size_var.get(),
-            "speaker_font_size": self.app.speaker_font_size_var.get(),
+            "chat_font_size": chat_font_size,
+            "speaker_font_size": speaker_font_size,
             "user_name_color": self.app.user_name_color_var.get(),
             "user_message_color": self.app.user_message_color_var.get(),
             "gemini_name_color": self.app.gemini_name_color_var.get(),

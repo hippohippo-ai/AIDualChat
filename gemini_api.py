@@ -79,7 +79,8 @@ class GeminiAPI:
             model = genai.GenerativeModel(model_name, system_instruction=sys_prompt, generation_config=generation_config)
             
             self.app.chat_sessions[chat_id] = model.start_chat(history=history or [])
-            
+            self.app.render_history[chat_id] = list(self.app.chat_sessions[chat_id].history)
+
             self.app.total_tokens[chat_id] = 0
             self.update_token_counts(chat_id, None, True)
             
@@ -87,8 +88,8 @@ class GeminiAPI:
                 if not history:
                     if self.app.raw_log_displays.get(chat_id):
                         self.app.raw_log_displays[chat_id].delete('1.0', ctk.END)
-                    system_msg = f"# --- Session reset with model: {model_name} ---"
-                    self.app.chat_sessions[chat_id].history.append({'role': 'model', 'parts': [{'text': system_msg}]})
+                    system_msg = f"--- Session reset with model: {model_name} ---"
+                    self.app.render_history[chat_id].append({'role': 'model', 'parts': [{'text': system_msg}]})
                     self.app.chat_core.append_message(chat_id, system_msg, "system")
                     self.app.chat_core._render_chat_display(chat_id)
                 self.app.ui_elements._remove_all_files(chat_id)
@@ -122,7 +123,6 @@ class GeminiAPI:
                 time.sleep(delay); self.api_call_thread(session, msg, chat_id, files, generation_id); return
             else: self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"API Error: {e}", 'generation_id': generation_id})
         finally:
-            self.app.is_streaming[chat_id] = False
             if self.app.current_generation_id[chat_id] == generation_id:
                 if response is not None:
                     is_ok, reason, full_text = False, "UNKNOWN", ""
@@ -148,7 +148,6 @@ class GeminiAPI:
         files = self.app.file_lists[chat_id].full_paths if hasattr(self.app.file_lists[chat_id], 'full_paths') else []
         if files: self.app.chat_core.append_message(chat_id, f"Attached: {', '.join([os.path.basename(p) for p in files])}", "system")
         self.app.current_generation_id[chat_id] += 1; self.app.chat_core.update_ui_for_sending(chat_id)
-        self.app.is_streaming[chat_id] = True
         thread = threading.Thread(target=self.api_call_thread, args=(self.app.chat_sessions[chat_id], message, chat_id, files, self.app.current_generation_id[chat_id])); thread.daemon = True; thread.start()
         self.app.ui_elements._remove_all_files(chat_id)
 

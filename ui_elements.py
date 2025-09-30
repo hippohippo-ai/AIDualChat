@@ -37,7 +37,12 @@ class UIElements:
         ctk.CTkButton(session_content, text="Save Gemini 1", command=lambda: self.app.chat_core.save_session(1), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15)
         ctk.CTkButton(session_content, text="Save Gemini 2", command=lambda: self.app.chat_core.save_session(2), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15)
         ctk.CTkButton(session_content, text="Load Gemini 1", command=lambda: self.app.chat_core.load_session(1), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15)
-        ctk.CTkButton(session_content, text="Load Gemini 2", command=lambda: self.app.chat_core.load_session(2), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15, pady=(0,10))
+        ctk.CTkButton(session_content, text="Load Gemini 2", command=lambda: self.app.chat_core.load_session(2), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15)
+
+        ctk.CTkFrame(session_content, height=1, fg_color=self.app.COLOR_BORDER).pack(fill="x", padx=15, pady=5) # Separator
+
+        ctk.CTkButton(session_content, text="Export Gemini 1", command=lambda: self.app.chat_core.export_conversation(1), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15)
+        ctk.CTkButton(session_content, text="Export Gemini 2", command=lambda: self.app.chat_core.export_conversation(2), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15, pady=(0,10))
 
         display_content = self._create_collapsible_frame(sidebar.content_frame, "Display") # New collapsible frame
         
@@ -260,8 +265,24 @@ class UIElements:
         button_minus = ctk.CTkButton(frame, text="-", width=20, height=20, font=font, command=lambda: self._decrement_spinbox(textvariable, min_value))
         button_minus.pack(side="left", padx=(0,2))
         
-        entry = ctk.CTkEntry(frame, textvariable=textvariable, width=width, font=font, justify="center")
+        entry = ctk.CTkEntry(frame, width=width, font=font, justify="center") # Removed textvariable=textvariable
         entry.pack(side="left")
+        entry.insert(0, str(textvariable.get())) # Manually set the initial value
+
+        # Add a trace to the entry's internal StringVar to update the external textvariable
+        def entry_callback(*args):
+            try:
+                val = entry.get()
+                if val: # Only update if not empty
+                    if isinstance(textvariable, ctk.IntVar):
+                        textvariable.set(int(float(val))) # Convert to float first to handle "8.0"
+                    elif isinstance(textvariable, ctk.DoubleVar):
+                        textvariable.set(float(val))
+            except ValueError:
+                # Handle invalid input, e.g., revert to last valid value or show error
+                pass # For now, just ignore invalid input
+
+        entry.bind("<KeyRelease>", entry_callback) # Update on key release
         
         button_plus = ctk.CTkButton(frame, text="+", width=20, height=20, font=font, command=lambda: self._increment_spinbox(textvariable, max_value))
         button_plus.pack(side="left", padx=(2,0))

@@ -3,6 +3,7 @@
 # Gemini Dual Chat GUI - Final Stable Version
 
 import customtkinter as ctk
+from tkinter import messagebox
 import google.generativeai as genai
 import os
 from datetime import datetime
@@ -47,6 +48,7 @@ class GeminiChatApp:
         self.response_queue = queue.Queue()
         self.current_generation_id = {1: 0, 2: 0}
         self.session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.render_history = {1: [], 2: []}
 
         # --- UI Element Dictionaries (keyed by chat_id) ---
         self.model_selectors = {}
@@ -65,10 +67,9 @@ class GeminiChatApp:
         self.auto_reply_vars = {1: ctk.BooleanVar(value=False), 2: ctk.BooleanVar(value=False)}
         self.countdown_vars = {1: ctk.StringVar(value=""), 2: ctk.StringVar(value="")}
         self.raw_log_displays = {}
-        self.is_streaming = {1: False, 2: False}
         self.available_models = []
         self.config_description_entry = None
-        self.md = MarkdownIt()
+        self.md = MarkdownIt('commonmark')
 
         # Font size variables
         self.chat_font_size_var = ctk.IntVar(value=8)
@@ -81,13 +82,8 @@ class GeminiChatApp:
         self.gemini_message_color_var = ctk.StringVar(value="#FFFFFF")
 
         # Traces for display settings
-        self.chat_font_size_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.speaker_font_size_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.user_name_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.user_message_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.gemini_name_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.gemini_message_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        # self.show_raw_tabs_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
+        # Removed trace_add calls to prevent TclError during initialization.
+        # _on_display_setting_change_and_save will be called manually after setup.
 
         self.config_manager = ConfigManager(self) # Instantiate ConfigManager
         self.config_manager.load_config() # Call load_config from ConfigManager
@@ -121,6 +117,17 @@ class GeminiChatApp:
         if self.available_models:
             for chat_id in [1, 2]: self.gemini_api.prime_chat_session(chat_id)
             
+        # Manually call _on_display_setting_change_and_save after all setup is complete
+        self._on_display_setting_change_and_save()
+
+        # Re-add traces for display settings to enable immediate updates
+        self.chat_font_size_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
+        self.speaker_font_size_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
+        self.user_name_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
+        self.user_message_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
+        self.gemini_name_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
+        self.gemini_message_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
+
         self.chat_core.process_queue()
 
     def _on_display_setting_change_and_save(self):
