@@ -1,4 +1,4 @@
-# --- START OF FINAL, CLEANED, AND WORKING chat_core.py ---
+# --- START OF CORRECTED chat_core.py ---
 
 import tkinter as tk
 import customtkinter as ctk
@@ -126,12 +126,15 @@ class ChatCore:
             current_role_color, current_message_color = (user_name_color, user_message_color) if msg_role == 'user' else (gemini_name_color, gemini_message_color)
             role_name = "You" if msg_role == 'user' else f"Gemini {chat_id}"
             
+            # --- START OF FIX ---
+            # Added `font-size: {chat_font_size}px;` back to the div style to ensure it overrides defaults.
             html_content += f'''
-            <div style="margin-bottom: 1em; color: {current_message_color};">
+            <div style="margin-bottom: 1em; color: {current_message_color}; font-size: {chat_font_size}px;">
                 <b style="font-weight: bold; color: {current_role_color}; font-size: {speaker_font_size}px;">{role_name}:</b>
                 {content_html_body}
             </div>
             '''
+            # --- END OF FIX ---
         
         html_content += "</body></html>"
         
@@ -262,4 +265,4 @@ class ChatCore:
             if user: f.write(f"---\n# You:\n{user}\n")
             f.write(f"---\n# Gemini {chat_id}:\n{response}\n\n")
 
-# --- END OF FINAL, CLEANED, AND WORKING chat_core.py ---
+# --- END OF CORRECTED chat_core.py ---

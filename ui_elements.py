@@ -228,25 +228,58 @@ class UIElements:
     def update_slider_label(self, chat_id, param_type):
         if param_type == 'temp': self.app.temp_labels[chat_id].configure(text=f"Temperature: {self.app.temp_vars[chat_id].get():.2f}")
 
+# In ui_elements.py
+
     def _create_spinbox_entry(self, parent, textvariable, min_value, max_value, width, font):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         button_minus = ctk.CTkButton(frame, text="-", width=20, height=20, font=font, command=lambda: self._decrement_spinbox(textvariable, min_value)); button_minus.pack(side="left", padx=(0,2))
         entry = ctk.CTkEntry(frame, width=width, font=font, justify="center"); entry.pack(side="left")
+        
+        # This part remains the same: update entry when variable changes from buttons
         entry.insert(0, str(textvariable.get()))
         def on_textvariable_change(*args):
-            entry.delete(0, tk.END); entry.insert(0, str(textvariable.get()))
+            # Check if the widget still exists before trying to modify it
+            if entry.winfo_exists():
+                current_cursor = entry.index(tk.INSERT)
+                entry.delete(0, tk.END)
+                entry.insert(0, str(textvariable.get()))
+                entry.icursor(current_cursor)
+
         textvariable.trace_add("write", on_textvariable_change)
-        def entry_callback(*args):
+
+        # --- START OF FIX ---
+        # Renamed the callback for clarity and changed the event triggers.
+        def validate_and_set_value(event=None):
             try:
-                val = entry.get()
-                if val:
-                    new_val = int(float(val)) if isinstance(textvariable, ctk.IntVar) else float(val)
+                val_str = entry.get()
+                if val_str:
+                    # Determine if we are dealing with an Int or Float variable
+                    is_int = isinstance(textvariable, (ctk.IntVar, tk.IntVar))
+                    
+                    # Convert to the correct type
+                    new_val = int(float(val_str)) if is_int else float(val_str)
+                    
+                    # Clamp the value within the allowed range
                     new_val = max(min_value, min(new_val, max_value))
-                    if textvariable.get() != new_val: textvariable.set(new_val)
+                    
+                    # Set the variable only if the value is different, to avoid recursion
+                    if textvariable.get() != new_val:
+                        textvariable.set(new_val)
                 else:
-                    if textvariable.get() != min_value: textvariable.set(min_value)
-            except ValueError: entry.delete(0, tk.END); entry.insert(0, str(textvariable.get()))
-        entry.bind("<KeyRelease>", entry_callback)
+                    # If the entry is empty, reset to the minimum value
+                    if textvariable.get() != min_value:
+                        textvariable.set(min_value)
+            except (ValueError, tk.TclError):
+                # If input is invalid (e.g., "abc"), revert the entry to the last valid value
+                if entry.winfo_exists():
+                    entry.delete(0, tk.END)
+                    entry.insert(0, str(textvariable.get()))
+
+        # Bind to <Return> (Enter key) and <FocusOut> (clicking away) instead of <KeyRelease>
+        entry.bind("<Return>", validate_and_set_value)
+        entry.bind("<FocusOut>", validate_and_set_value)
+        # --- END OF FIX ---
+
         button_plus = ctk.CTkButton(frame, text="+", width=20, height=20, font=font, command=lambda: self._increment_spinbox(textvariable, max_value)); button_plus.pack(side="left", padx=(2,0))
         return frame
 
