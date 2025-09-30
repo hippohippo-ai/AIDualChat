@@ -265,9 +265,16 @@ class UIElements:
         button_minus = ctk.CTkButton(frame, text="-", width=20, height=20, font=font, command=lambda: self._decrement_spinbox(textvariable, min_value))
         button_minus.pack(side="left", padx=(0,2))
         
-        entry = ctk.CTkEntry(frame, width=width, font=font, justify="center") # Removed textvariable=textvariable
+        entry = ctk.CTkEntry(frame, width=width, font=font, justify="center")
         entry.pack(side="left")
         entry.insert(0, str(textvariable.get())) # Manually set the initial value
+
+        # Callback to update the entry when textvariable changes
+        def on_textvariable_change(*args):
+            entry.delete(0, tk.END)
+            entry.insert(0, str(textvariable.get()))
+
+        textvariable.trace_add("write", on_textvariable_change)
 
         # Add a trace to the entry's internal StringVar to update the external textvariable
         def entry_callback(*args):
@@ -275,12 +282,25 @@ class UIElements:
                 val = entry.get()
                 if val: # Only update if not empty
                     if isinstance(textvariable, ctk.IntVar):
-                        textvariable.set(int(float(val))) # Convert to float first to handle "8.0"
+                        new_val = int(float(val)) # Convert to float first to handle "8.0"
                     elif isinstance(textvariable, ctk.DoubleVar):
-                        textvariable.set(float(val))
+                        new_val = float(val)
+                    
+                    # Ensure value is within min/max range
+                    if new_val < min_value:
+                        new_val = min_value
+                    elif new_val > max_value:
+                        new_val = max_value
+                    
+                    if textvariable.get() != new_val: # Only update if different to avoid recursion
+                        textvariable.set(new_val)
+                else: # If entry is empty, set textvariable to a default or min_value
+                    if textvariable.get() != min_value:
+                        textvariable.set(min_value)
             except ValueError:
-                # Handle invalid input, e.g., revert to last valid value or show error
-                pass # For now, just ignore invalid input
+                # Handle invalid input: revert entry to current textvariable value
+                entry.delete(0, tk.END)
+                entry.insert(0, str(textvariable.get()))
 
         entry.bind("<KeyRelease>", entry_callback) # Update on key release
         

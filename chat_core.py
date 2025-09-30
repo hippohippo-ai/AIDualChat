@@ -170,11 +170,10 @@ class ChatCore:
         html_content = f"""
         <!DOCTYPE html>
         <html>
-        <body style=\"background-color: {self.app.COLOR_BACKGROUND}; color: {user_message_color}; font-family: Consolas, monaco, monospace; font-size: {chat_font_size}px;\">
+        <body style=\"background-color: {self.app.COLOR_BACKGROUND}; color: {gemini_message_color}; font-family: Consolas, monaco, monospace; font-size: {chat_font_size}px;\">
         """
 
         for message in history:
-
             if isinstance(message, dict):
                 msg_role = message['role']
                 msg_parts = message['parts']
@@ -186,25 +185,28 @@ class ChatCore:
 
             content_html_body = self.app.md.render(full_text)
 
-            h1_span_style = f"font-size: {chat_font_size * 2.0}px; font-weight: bold;"
-            h2_span_style = f"font-size: {chat_font_size * 1.5}px; font-weight: bold;"
-            h3_span_style = f"font-size: {chat_font_size * 1.17}px; font-weight: bold;"
-            h4_span_style = f"font-size: {chat_font_size * 1.12}px; font-weight: bold;"
-            h5_span_style = f"font-size: {chat_font_size * 0.83}px; font-weight: bold;"
-            h6_span_style = f"font-size: {chat_font_size * 0.75}px; font-weight: bold;"
+            # Define styles for direct injection
+            h1_style = f"font-size: {int(chat_font_size * 2.0)}px; font-weight: bold;"
+            h2_style = f"font-size: {int(chat_font_size * 1.5)}px; font-weight: bold;"
+            h3_style = f"font-size: {int(chat_font_size * 1.17)}px; font-weight: bold;"
+            h4_style = f"font-size: {int(chat_font_size * 1.12)}px; font-weight: bold;"
+            h5_style = f"font-size: {int(chat_font_size * 0.83)}px; font-weight: bold;"
+            h6_style = f"font-size: {int(chat_font_size * 0.75)}px; font-weight: bold;"
 
-            content_html_body = re.sub(r'<h1([^>]*)>(.*?)</h1>', r'<span\1 style="' + h1_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h2([^>]*)>(.*?)</h2>', r'<span\1 style="' + h2_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h3([^>]*)>(.*?)</h3>', r'<span\1 style="' + h3_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h4([^>]*)>(.*?)</h4>', r'<span\1 style="' + h4_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h5([^>]*)>(.*?)</h5>', r'<span\1 style="' + h5_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h6([^>]*)>(.*?)</h6>', r'<span\1 style="' + h6_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-
+            # Use regex to add inline styles to existing heading tags
+            content_html_body = re.sub(r'<h1([^>]*)>', r'<h1\1 style="' + h1_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h2([^>]*)>', r'<h2\1 style="' + h2_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h3([^>]*)>', r'<h3\1 style="' + h3_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h4([^>]*)>', r'<h4\1 style="' + h4_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h5([^>]*)>', r'<h5\1 style="' + h5_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h6([^>]*)>', r'<h6\1 style="' + h6_style + '">', content_html_body)
+            
             pre_style = f"background-color: #2B2B2B; padding: 10px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; font-size: {chat_font_size}px;"
             code_style = f"font-family: Consolas, monaco, monospace; font-size: {chat_font_size}px;"
 
-            content_html_body = re.sub(r'<pre>(.*?)</pre>', r'<pre style="' + pre_style + r'">\1</pre>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<code>(.*?)</code>', r'<code style="' + code_style + r'">\1</code>', content_html_body, flags=re.DOTALL)
+            content_html_body = re.sub(r'<pre([^>]*)>', r'<pre\1 style="' + pre_style + '">', content_html_body)
+            content_html_body = re.sub(r'<code([^>]*)>', r'<code\1 style="' + code_style + '">', content_html_body)
+
 
             # Apply colors based on role
             if msg_role == 'user':
@@ -356,26 +358,28 @@ class ChatCore:
                 full_text = "".join([p.text for p in msg_parts if hasattr(p, 'text')])
 
             content_html_body = self.app.md.render(full_text)
+            
+            # Define styles for direct injection
+            h1_style = f"font-size: {int(chat_font_size * 2.0)}px; font-weight: bold;"
+            h2_style = f"font-size: {int(chat_font_size * 1.5)}px; font-weight: bold;"
+            h3_style = f"font-size: {int(chat_font_size * 1.17)}px; font-weight: bold;"
+            h4_style = f"font-size: {int(chat_font_size * 1.12)}px; font-weight: bold;"
+            h5_style = f"font-size: {int(chat_font_size * 0.83)}px; font-weight: bold;"
+            h6_style = f"font-size: {int(chat_font_size * 0.75)}px; font-weight: bold;"
 
-            h1_span_style = f"font-size: {chat_font_size * 2.0}px; font-weight: bold;"
-            h2_span_style = f"font-size: {chat_font_size * 1.5}px; font-weight: bold;"
-            h3_span_style = f"font-size: {chat_font_size * 1.17}px; font-weight: bold;"
-            h4_span_style = f"font-size: {chat_font_size * 1.12}px; font-weight: bold;"
-            h5_span_style = f"font-size: {chat_font_size * 0.83}px; font-weight: bold;"
-            h6_span_style = f"font-size: {chat_font_size * 0.75}px; font-weight: bold;"
-
-            content_html_body = re.sub(r'<h1([^>]*)>(.*?)</h1>', r'<span\1 style="' + h1_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h2([^>]*)>(.*?)</h2>', r'<span\1 style="' + h2_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h3([^>]*)>(.*?)</h3>', r'<span\1 style="' + h3_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h4([^>]*)>(.*?)</h4>', r'<span\1 style="' + h4_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h5([^>]*)>(.*?)</h5>', r'<span\1 style="' + h5_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<h6([^>]*)>(.*?)</h6>', r'<span\1 style="' + h6_span_style + r'">\2</span>', content_html_body, flags=re.DOTALL)
+            # Use regex to add inline styles to existing heading tags
+            content_html_body = re.sub(r'<h1([^>]*)>', r'<h1\1 style="' + h1_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h2([^>]*)>', r'<h2\1 style="' + h2_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h3([^>]*)>', r'<h3\1 style="' + h3_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h4([^>]*)>', r'<h4\1 style="' + h4_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h5([^>]*)>', r'<h5\1 style="' + h5_style + '">', content_html_body)
+            content_html_body = re.sub(r'<h6([^>]*)>', r'<h6\1 style="' + h6_style + '">', content_html_body)
 
             pre_style = f"background-color: #2B2B2B; padding: 10px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; font-size: {chat_font_size}px;"
             code_style = f"font-family: Consolas, monaco, monospace; font-size: {chat_font_size}px;"
 
-            content_html_body = re.sub(r'<pre>(.*?)</pre>', r'<pre style="' + pre_style + r'">\1</pre>', content_html_body, flags=re.DOTALL)
-            content_html_body = re.sub(r'<code>(.*?)</code>', r'<code style="' + code_style + r'">\1</code>', content_html_body, flags=re.DOTALL)
+            content_html_body = re.sub(r'<pre([^>]*)>', r'<pre\1 style="' + pre_style + '">', content_html_body)
+            content_html_body = re.sub(r'<code([^>]*)>', r'<code\1 style="' + code_style + '">', content_html_body)
 
             if msg_role == 'user':
                 current_role_color = user_name_color
