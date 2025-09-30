@@ -1,6 +1,6 @@
 # --- START OF FILE main.py ---
 
-# Gemini Dual Chat GUI - Final Stable Version
+# Gemini Dual Chat GUI - Refactored Version
 
 import customtkinter as ctk
 from tkinter import messagebox
@@ -43,14 +43,14 @@ class GeminiChatApp:
         self.SIDEBAR_WIDTH_FULL = 280
         self.SIDEBAR_WIDTH_COLLAPSED = 40
 
-        # --- State Management (Back to simple, dual-window logic) ---
+        # --- State Management ---
         self.chat_sessions = {}
         self.response_queue = queue.Queue()
         self.current_generation_id = {1: 0, 2: 0}
         self.session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.render_history = {1: [], 2: []}
 
-        # --- UI Element Dictionaries (keyed by chat_id) ---
+        # --- UI Element Dictionaries ---
         self.model_selectors = {}
         self.options_prompts = {}
         self.temp_vars = {1: ctk.DoubleVar(), 2: ctk.DoubleVar()}
@@ -69,38 +69,44 @@ class GeminiChatApp:
         self.raw_log_displays = {}
         self.available_models = []
         self.config_description_entry = None
+        
+        # REFACTORED: Markdown-it instance is created here, but configuration is moved to ChatCore.
         self.md = MarkdownIt('commonmark')
 
-        # Font size variables
+        # Font size and color variables
         self.chat_font_size_var = ctk.IntVar(value=8)
         self.speaker_font_size_var = ctk.IntVar(value=12)
-
-        # Color variables
         self.user_name_color_var = ctk.StringVar(value="#A9DFBF")
         self.user_message_color_var = ctk.StringVar(value="#FFFFFF")
         self.gemini_name_color_var = ctk.StringVar(value="#A9CCE3")
         self.gemini_message_color_var = ctk.StringVar(value="#FFFFFF")
 
-        # Traces for display settings
-        # Removed trace_add calls to prevent TclError during initialization.
-        # _on_display_setting_change_and_save will be called manually after setup.
-
-        self.config_manager = ConfigManager(self) # Instantiate ConfigManager
-        self.config_manager.load_config() # Call load_config from ConfigManager
+        # --- Module Initialization ---
+        self.config_manager = ConfigManager(self)
+        self.config_manager.load_config()
         self.delay_var = ctk.StringVar(value=str(self.config.get("auto_reply_delay_minutes", 1.0)))
         
-        self.gemini_api = GeminiAPI(self) # Instantiate GeminiAPI
+        self.gemini_api = GeminiAPI(self)
         self.api_key = self.config.get("api_key")
         genai.configure(api_key=self.api_key)
 
         self.log_dir = "logs"
         os.makedirs(self.log_dir, exist_ok=True)
 
-        self.ui_elements = UIElements(self) # Instantiate UIElements
-        self.chat_core = ChatCore(self) # Instantiate ChatCore
-        self.ui_elements.create_widgets() # Call create_widgets from UIElements
+        self.chat_core = ChatCore(self)
+        
+        ui_callbacks = {
+            'on_new_session': self.chat_core.new_session,
+            'on_save_session': self.chat_core.save_session,
+            'on_load_session': self.chat_core.load_session,
+            'on_export_conversation': self.chat_core.export_conversation,
+            'on_restore_display_defaults': self.config_manager._restore_display_settings,
+            'on_config_select': self.config_manager._on_config_select,
+            'on_save_current_config': self.config_manager._save_current_config,
+        }
+        self.ui_elements = UIElements(self, ui_callbacks)
+        self.ui_elements.create_widgets()
 
-        # Apply the active configuration to the UI, but don't reset sessions yet
         active_config = self.config_manager.config['configurations'][self.config_manager.config.get('active_config_index', 0)]
         self.config_manager._apply_config_to_ui(active_config, startup=True)
 
@@ -110,104 +116,32 @@ class GeminiChatApp:
         except Exception as e:
             self.available_models = []
             messagebox.showwarning("API Connection Error", 
-                                 f"Could not connect to Google AI, likely due to an invalid API key or a network issue. Please provide a valid key.")
+                                 f"Could not connect to Google AI. Please provide a valid key.\nError: {e}")
             self.gemini_api.prompt_for_api_key()
 
-        # Prime sessions only if models were loaded
         if self.available_models:
             for chat_id in [1, 2]: self.gemini_api.prime_chat_session(chat_id)
             
-        # Manually call _on_display_setting_change_and_save after all setup is complete
         self._on_display_setting_change_and_save()
 
-        # Re-add traces for display settings to enable immediate updates
-        self.chat_font_size_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.speaker_font_size_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.user_name_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.user_message_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.gemini_name_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
-        self.gemini_message_color_var.trace_add("write", lambda *args: self._on_display_setting_change_and_save())
+        self.chat_font_size_var.trace_add("write", self._on_display_setting_change_and_save)
+        self.speaker_font_size_var.trace_add("write", self._on_display_setting_change_and_save)
+        self.user_name_color_var.trace_add("write", self._on_display_setting_change_and_save)
+        self.user_message_color_var.trace_add("write", self._on_display_setting_change_and_save)
+        self.gemini_name_color_var.trace_add("write", self._on_display_setting_change_and_save)
+        self.gemini_message_color_var.trace_add("write", self._on_display_setting_change_and_save)
 
         self.chat_core.process_queue()
 
-    def _on_display_setting_change_and_save(self):
+    def _on_display_setting_change_and_save(self, *args):
+        # This callback now only triggers a re-render and saves the config.
+        # The complex rendering logic is handled inside ChatCore.
         if hasattr(self, 'chat_core') and self.chat_core is not None:
             self.chat_core._render_chat_display(1)
             self.chat_core._render_chat_display(2)
-            self.config_manager._save_display_settings() # Save config
-
-
-
-
-
-
-
-
-
-
-
-
+            self.config_manager._save_display_settings()
     
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-
-
-
-        
-
-
-
-
-
-
-
-    
-
-
-
-    
- # Scroll to bottom
-
-
-
-
-
-
-
-
-    
-
-
-
-
-
-
-
-        
-
-
-
+    # REMOVED: _configure_markdown_renderer method is no longer needed here.
 
 if __name__ == "__main__":
     root = ctk.CTk()
