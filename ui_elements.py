@@ -1,4 +1,4 @@
-# --- START OF UPDATED ui_elements.py ---
+# --- START OF FILE ui_elements.py ---
 
 import tkinter as tk
 import customtkinter as ctk
@@ -29,16 +29,13 @@ class UIElements:
         sidebar = ctk.CTkFrame(parent, width=self.app.RIGHT_SIDEBAR_WIDTH_FULL, fg_color=self.app.COLOR_SIDEBAR, corner_radius=10)
         sidebar.pack_propagate(False)
         
-        # Create the toggle button directly on the sidebar, so it's always visible
         toggle_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
         toggle_frame.pack(fill="x", pady=5, padx=5)
         self.app.right_toggle_button = ctk.CTkButton(toggle_frame, text="▶", command=self._toggle_right_sidebar, width=25, height=25, font=self.app.FONT_GENERAL)
         self.app.right_toggle_button.pack(anchor="nw")
 
-        # This main content_frame is now a regular frame that will be toggled
         sidebar.content_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
         
-        # --- Top Section (Fixed) ---
         top_fixed_frame = ctk.CTkFrame(sidebar.content_frame, fg_color="transparent")
         top_fixed_frame.pack(fill="x", padx=0, pady=0)
 
@@ -48,10 +45,8 @@ class UIElements:
         
         self._create_configuration_selector_panel(top_fixed_frame)
 
-        # --- Separator ---
         ctk.CTkFrame(sidebar.content_frame, height=2, fg_color=self.app.COLOR_BORDER).pack(fill="x", padx=15, pady=10)
 
-        # --- Bottom Section (Scrollable) ---
         bottom_scrollable_frame = ctk.CTkScrollableFrame(sidebar.content_frame, fg_color="transparent")
         bottom_scrollable_frame.pack(fill="both", expand=True)
 
@@ -60,7 +55,6 @@ class UIElements:
         self._create_model_settings_panel(bottom_scrollable_frame, 1)
         self._create_model_settings_panel(bottom_scrollable_frame, 2)
         
-        # Initially pack the content frame so it's visible
         sidebar.content_frame.pack(fill="both", expand=True)
         
         return sidebar
@@ -71,16 +65,13 @@ class UIElements:
         self.update_all_text()
 
     def update_all_text(self):
-        # Update widgets managed by UIElements
         for widget, key, *args in self.lang_updatable_widgets:
             if widget.winfo_exists():
-                widget.configure(text=self.lang.get(key).format(*args))
+                widget.configure(text=self.lang.get(key, *args))
         
-        # Delegate text updates to each ChatPane instance
         for pane in self.app.chat_panes.values():
             pane.update_text()
         
-        # Update widgets that need special formatting
         self.update_slider_label(1, 'temp')
         self.update_slider_label(2, 'temp')
 
@@ -94,14 +85,11 @@ class UIElements:
         is_expanded = sidebar.cget('width') == self.app.RIGHT_SIDEBAR_WIDTH_FULL
         
         if is_expanded:
-            # Hide content, shrink sidebar, change button text
             sidebar.content_frame.pack_forget()
             sidebar.configure(width=self.app.SIDEBAR_WIDTH_COLLAPSED)
             self.app.right_toggle_button.configure(text="◀")
         else:
-            # Expand sidebar, show content, change button text
             sidebar.configure(width=self.app.RIGHT_SIDEBAR_WIDTH_FULL)
-            # Make sure content appears after the toggle button's frame
             sidebar.content_frame.pack(fill="both", expand=True)
             self.app.right_toggle_button.configure(text="▶")
     
@@ -162,6 +150,7 @@ class UIElements:
             lbl = ctk.CTkLabel(f, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED); lbl.pack()
             self.lang_updatable_widgets.append((lbl, label_key))
             btn = ctk.CTkButton(f, text="", fg_color=color_var.get(), width=50, height=25, command=lambda: self._pick_color(color_var, btn)); btn.pack()
+            color_var.trace_add("write", lambda *args, b=btn, c=color_var: b.configure(fg_color=c.get()))
             return btn
         self.user_name_color_button = create_color_picker(color_grid_frame, 0, 0, 'user_name', self.app.user_name_color_var)
         self.user_message_color_button = create_color_picker(color_grid_frame, 0, 1, 'user_message', self.app.user_message_color_var)
@@ -222,18 +211,26 @@ class UIElements:
     def _create_model_settings_panel(self, parent, chat_id):
         frame, header_label = self._create_collapsible_frame(parent, "gemini_settings", chat_id)
         self.lang_updatable_widgets.append((header_label, 'gemini_settings', chat_id))
+        
         widget = ctk.CTkLabel(frame, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED); widget.pack(anchor='w', padx=5, pady=(5,0))
         self.lang_updatable_widgets.append((widget, 'persona'))
         self.app.options_prompts[chat_id] = ctk.CTkTextbox(frame, height=100, wrap="word", font=self.app.FONT_CHAT)
         self.app.options_prompts[chat_id].pack(fill="x", padx=5, pady=2, expand=True)
+        
         widget = ctk.CTkLabel(frame, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED); widget.pack(anchor='w', padx=5, pady=(5,0))
         self.lang_updatable_widgets.append((widget, 'context'))
         self.app.context_prompts[chat_id] = ctk.CTkTextbox(frame, height=120, wrap="word", font=self.app.FONT_CHAT)
         self.app.context_prompts[chat_id].pack(fill="x", padx=5, pady=2, expand=True)
+        
         params_frame = ctk.CTkFrame(frame, fg_color="transparent"); params_frame.pack(fill='x', padx=5, pady=5)
         self.app.temp_labels[chat_id] = ctk.CTkLabel(params_frame, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED); self.app.temp_labels[chat_id].pack(side='left')
         self.update_slider_label(chat_id, 'temp')
         ctk.CTkSlider(params_frame, from_=0, to=1, variable=self.app.temp_vars[chat_id], command=lambda v, c=chat_id: self.update_slider_label(c, 'temp')).pack(side='left', fill='x', expand=True, padx=5)
+        
+        web_search_checkbox = ctk.CTkCheckBox(frame, text="", variable=self.app.web_search_vars[chat_id])
+        web_search_checkbox.pack(anchor='w', padx=5, pady=5)
+        self.lang_updatable_widgets.append((web_search_checkbox, 'web_search_enabled'))
+        
         widget = ctk.CTkLabel(frame, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED); widget.pack(anchor='w', padx=5, pady=(5,0))
         self.lang_updatable_widgets.append((widget, 'files'))
         file_frame = ctk.CTkFrame(frame, fg_color=self.app.COLOR_WIDGET_BG, border_color=self.app.COLOR_BORDER, border_width=1); file_frame.pack(fill="both", expand=True, padx=5, pady=5)
@@ -250,17 +247,21 @@ class UIElements:
         header = ctk.CTkFrame(container, fg_color="transparent", cursor="hand2"); header.pack(fill="x")
         chevron_label = ctk.CTkLabel(header, text="▶", font=self.app.FONT_GENERAL, text_color=self.app.COLOR_TEXT_MUTED); chevron_label.pack(side="left", padx=(10,5))
         header_label = ctk.CTkLabel(header, text="", font=self.app.FONT_BOLD, text_color=self.app.COLOR_TEXT); header_label.pack(side="left")
+        
+        # Add the text key and its arguments to the label for later updates
+        self.lang_updatable_widgets.append((header_label, text_key, *args))
+
         content_frame = ctk.CTkFrame(container, fg_color="transparent")
         def toggle_content(event=None):
             if content_frame.winfo_ismapped(): content_frame.pack_forget(); chevron_label.configure(text="▶")
             else: content_frame.pack(fill="x", after=header); chevron_label.configure(text="▼")
         header.bind("<Button-1>", toggle_content); header_label.bind("<Button-1>", toggle_content); chevron_label.bind("<Button-1>", toggle_content)
-        return content_frame, header_label
+        return content_frame, header_label # Return header_label for direct manipulation if needed
 
     def update_slider_label(self, chat_id, param_type):
         if param_type == 'temp':
             if chat_id in self.app.temp_labels and self.app.temp_labels[chat_id].winfo_exists():
-                temp_text = self.lang.get('temperature').format(self.app.temp_vars[chat_id].get())
+                temp_text = self.lang.get('temperature', self.app.temp_vars[chat_id].get())
                 self.app.temp_labels[chat_id].configure(text=temp_text)
                 
     def _open_file_dialog(self, chat_id):
@@ -270,25 +271,34 @@ class UIElements:
             for p in paths:
                 pane.file_listbox.insert(tk.END, os.path.basename(p))
                 pane.file_listbox_paths.append(p)
+
     def _remove_selected_files(self, chat_id):
         pane = self.app.chat_panes[chat_id]
         selected_indices = pane.file_listbox.curselection()
         for i in reversed(selected_indices):
             pane.file_listbox.delete(i)
             pane.file_listbox_paths.pop(i)
+            
     def _remove_all_files(self, chat_id):
         pane = self.app.chat_panes[chat_id]
         pane.file_listbox.delete(0, tk.END)
         pane.file_listbox_paths.clear()
+
     def _create_spinbox_entry(self, parent, textvariable, min_value, max_value, width, font):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         button_minus = ctk.CTkButton(frame, text="-", width=20, height=20, font=font, command=lambda: self._decrement_spinbox(textvariable, min_value)); button_minus.pack(side="left", padx=(0,2))
         entry = ctk.CTkEntry(frame, width=width, font=font, justify="center"); entry.pack(side="left")
+        
+        # Set initial entry value from textvariable
         entry.insert(0, str(textvariable.get()))
+        
+        # Update entry when textvariable changes externally
         def on_textvariable_change(*args):
             if entry.winfo_exists():
                 entry.delete(0, tk.END); entry.insert(0, str(textvariable.get()))
         textvariable.trace_add("write", on_textvariable_change)
+
+        # Validate and set value from entry on Return or FocusOut
         def validate_and_set_value(event=None):
             try:
                 val_str = entry.get()
@@ -297,29 +307,33 @@ class UIElements:
                     new_val = int(float(val_str)) if is_int else float(val_str)
                     new_val = max(min_value, min(new_val, max_value))
                     if textvariable.get() != new_val: textvariable.set(new_val)
-                else:
+                else: # Handle empty entry case
                     if textvariable.get() != min_value: textvariable.set(min_value)
             except (ValueError, tk.TclError):
                 if entry.winfo_exists():
                     entry.delete(0, tk.END); entry.insert(0, str(textvariable.get()))
+        
         entry.bind("<Return>", validate_and_set_value)
         entry.bind("<FocusOut>", validate_and_set_value)
+        
         button_plus = ctk.CTkButton(frame, text="+", width=20, height=20, font=font, command=lambda: self._increment_spinbox(textvariable, max_value)); button_plus.pack(side="left", padx=(2,0))
         return frame
+
     def _decrement_spinbox(self, textvariable, min_value):
         try:
             current_value = textvariable.get()
             if current_value > min_value: textvariable.set(current_value - 1)
         except ValueError: pass
+
     def _increment_spinbox(self, textvariable, max_value):
         try:
             current_value = textvariable.get()
             if current_value < max_value: textvariable.set(current_value + 1)
         except ValueError: pass
+
     def _pick_color(self, color_var, button_widget):
         color_code = colorchooser.askcolor(title="Choose color")[1]
         if color_code:
             color_var.set(color_code)
-            button_widget.configure(fg_color=color_code)
 
-# --- END OF FINAL, FULLY CORRECTED ui_elements.py ---
+# --- END OF FILE ui_elements.py ---

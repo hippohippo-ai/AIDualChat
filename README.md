@@ -12,23 +12,20 @@ A Python-based desktop application for interacting with Google's Gemini AI model
 - **Auto-Reply Functionality**: Enable one agent to automatically reply to the other, allowing for continuous conversations. The delay between replies is configurable.
 - **File Attachments**: Attach and send local files (text, images, etc.) to the models.
 - **Session Management**: Save and load the complete state of an agent (model, system prompt, history) to a JSON file.
+- **Regenerate Response**: Easily retry the last AI generation if the result isn't satisfactory.
+- **Multi-Language Support**: Switch the entire UI between English and Mandarin on the fly.
 - **Real-time Token Counts**: Monitor token usage for the last turn and the total session for each agent.
 - **Improved Markdown Rendering**: Responses are rendered with improved markdown support for headings, blockquotes, code blocks, bold, italic, and strikethrough text, using inline styles for better compatibility with the display component.
 - **Fixed Doubled Input**: Resolved an issue where user input messages would sometimes appear twice in the chat display.
 - **Robust Gemini API Content Handling**: Improved the internal handling of message objects from the Gemini API for more stable chat history management.
 - **Separated Conversation Logging**: All interactions for each agent are automatically saved to a separate, timestamped session log file.
 - **UI Conveniences**: Features collapsible sidebars (left sidebar collapsed by default) and a configurable minimum window size (1000x800) for a better user experience.
+- **Web Search Integration**: The AI can perform real-time web searches using DuckDuckGo to answer questions about recent events or provide up-to-date information. If a search-enabled query fails, the model automatically retries without search to ensure a response is always provided.
 - **Improved Code Structure**: The application's codebase has been refactored into modular Python files (`config_manager.py`, `gemini_api.py`, `ui_elements.py`, `chat_core.py`) for enhanced organization, maintainability, and readability.
 
 ## Known Issues
 
 - **Text Selection**: Due to limitations of the `tkhtmlview.HTMLLabel` component, selecting and copying text directly from the chat display may not work reliably.
-
----
-
-## 已知问题
-
-- **文本选择**: 由于 `tkhtmlview.HTMLLabel` 组件的限制，直接从聊天显示中选择和复制文本可能无法可靠工作。
 
 ## Setup and Installation
 
@@ -39,9 +36,23 @@ A Python-based desktop application for interacting with Google's Gemini AI model
     ```
 
 2.  **Install dependencies**:
-    The application relies on a few key libraries. You can install them using pip:
+    Using a virtual environment is highly recommended to avoid conflicts with other projects.
+
+    **Recommended method (with virtual environment):**
     ```bash
-    pip install customtkinter google-generativeai
+    # Create and activate the virtual environment
+    python -m venv venv
+    venv\Scripts\activate  # On Windows
+    # source venv/bin/activate  # On macOS/Linux
+
+    # Install dependencies
+    pip install -r requirements.txt
+    ```
+
+    **Alternative method (global installation):**
+    If you choose not to use a virtual environment, you can install the packages globally (not recommended):
+    ```bash
+    pip install -r requirements.txt
     ```
 
 3.  **Obtain a Gemini API Key**:
@@ -104,13 +115,20 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
 - **自动回复功能**: 启用一个智能体自动回复另一个，允许进行连续对话。回复之间的延迟是可配置的。
 - **文件附件**: 将本地文件（文本、图像等）附加并发送到模型。
 - **会话管理**: 将智能体的完整状态（模型、系统提示、历史记录）保存和加载到 JSON 文件。
+- **重新生成回应**: 如果对结果不满意，可以轻松地重试上一次的 AI 生成。
+- **多语言支持**: 可随时在中英文之间切换整个界面语言。
 - **实时令牌计数**: 监控每个智能体上一轮和整个会话的令牌使用情况。
 - **改进的 Markdown 渲染**: 响应以改进的 Markdown 格式呈现，支持标题、引用块、代码块、粗体、斜体和删除线文本，使用内联样式以更好地兼容显示组件。
 - **修复了重复输入问题**: 解决了用户输入消息有时会在聊天显示中出现两次的问题。
 - **健壮的 Gemini API 内容处理**: 改进了 Gemini API 消息对象的内部处理，以实现更稳定的聊天历史管理。
 - **分离的对话日志**: 每个智能体的所有交互都会自动保存到一个独立的、带时间戳的会话日志文件中。
 - **界面便利功能**: 具有可折叠的侧边栏（左侧边栏默认折叠）和可配置的最小窗口尺寸（1000x800），以提供更好的用户体验。
+- **网页搜索集成**: AI 可以使用 DuckDuckGo 进行实时网页搜索，以回答有关最新事件或提供最新信息的问题。如果启用搜索的查询失败，模型会自动在没有搜索的情况下重试，以确保始终提供响应。
 - **改进的代码结构**: 应用程序的代码库已重构为模块化的 Python 文件（`config_manager.py`、`gemini_api.py`、`ui_elements.py`、`chat_core.py`），以增强组织性、可维护性和可读性。
+
+## 已知问题
+
+- **文本选择**: 由于 `tkhtmlview.HTMLLabel` 组件的限制，直接从聊天显示中选择和复制文本可能无法可靠工作。
 
 ## 设置与安装
 
@@ -121,9 +139,23 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
     ```
 
 2.  **安装依赖项**:
-    该应用程序依赖于一些关键库。您可以使用 pip 安装它们：
+    强烈建议使用虚拟环境，以避免与其他项目的依赖包产生冲突。
+
+    **推荐方法 (使用虚拟环境):**
     ```bash
-    pip install customtkinter google-generativeai
+    # 创建并激活虚拟环境
+    python -m venv venv
+    venv\Scripts\activate  # Windows 系统
+    # source venv/bin/activate  # macOS/Linux 系统
+
+    # 安装依赖
+    pip install -r requirements.txt
+    ```
+
+    **替代方法 (全局安装):**
+    如果您选择不使用虚拟环境，也可以直接在全局环境中安装 (不推荐):
+    ```bash
+    pip install -r requirements.txt
     ```
 
 3.  **获取 Gemini API 密钥**:

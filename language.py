@@ -4,7 +4,6 @@ class LanguageManager:
     def __init__(self, initial_language='en'):
         self.texts = {
             'en': {
-                # ... other keys are the same
                 'studio': 'STUDIO',
                 'session_management': 'Session Management',
                 'new_session': 'New Session',
@@ -37,19 +36,22 @@ class LanguageManager:
                 'persona': 'Persona',
                 'context': 'Context',
                 'temperature': 'Temperature: {:.2f}',
-                'files': 'Attachments', # CHANGED from Files
-                'send': 'Send',         # NEW
-                'stop': 'Stop',         # NEW
-                'regen': 'Regen',       # NEW
+                'web_search_enabled': 'Enable Web Search',
+                'files': 'Attachments',
+                'send': 'Send',
+                'stop': 'Stop',
+                'regen': 'Regen',
                 'auto_reply_to': 'Auto-reply to Gemini {}',
                 'session_reset_msg': '--- Session reset with model: {} ---',
                 'session_loaded_msg': '--- Loaded session with model: {} ---',
+                'searching_web': '--- Searching web for: "{}"... ---',
+                'search_results_info': '--- Web search results provided to model ---',
+                'web_search_failed_fallback': '\n--- ⚠️ Web search failed. Retrying in normal mode... ---\n', # NEW
                 'generation_stopped': '\n---\n- Generation stopped by user. ---\n',
                 'info_no_previous_message': 'No previous message to regenerate from.',
                 'warn_rewind_fail': 'Could not rewind API session. Re-priming session from history.',
             },
             'zh': {
-                # ... other keys are the same
                 'studio': '工作室',
                 'session_management': '会话管理',
                 'new_session': '新会话',
@@ -82,13 +84,17 @@ class LanguageManager:
                 'persona': '角色设定',
                 'context': '情景指令',
                 'temperature': '温度: {:.2f}',
-                'files': '附件',         # CHANGED from 文件
-                'send': '发送',         # NEW
-                'stop': '停止',         # NEW
-                'regen': '重试',       # NEW
+                'web_search_enabled': '启用联网搜索',
+                'files': '附件',
+                'send': '发送',
+                'stop': '停止',
+                'regen': '重试',
                 'auto_reply_to': '自动回复 Gemini {}',
                 'session_reset_msg': '--- 会话已重置，模型: {} ---',
                 'session_loaded_msg': '--- 会话已加载，模型: {} ---',
+                'searching_web': '--- 正在联网搜索: "{}"... ---',
+                'search_results_info': '--- 已将网络搜索结果提供给模型 ---',
+                'web_search_failed_fallback': '\n--- ⚠️ 联网搜索失败，正在以普通模式重试... ---\n', # NEW
                 'generation_stopped': '\n---\n- 已被用户停止生成。 ---\n',
                 'info_no_previous_message': '没有可重新生成的消息。',
                 'warn_rewind_fail': '无法回滚 API 会话，正在从历史记录重新建立会话。',
@@ -100,7 +106,10 @@ class LanguageManager:
         if lang in self.texts:
             self.language = lang
 
-    def get(self, key):
-        return self.texts[self.language].get(key, key)
+    def get(self, key, *args):
+        text = self.texts[self.language].get(key, key)
+        if args:
+            return text.format(*args)
+        return text
 
 # --- END OF UPDATED language.py ---

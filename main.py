@@ -53,6 +53,7 @@ class GeminiChatApp:
         self.options_prompts = {}
         self.context_prompts = {}
         self.temp_vars = {1: ctk.DoubleVar(), 2: ctk.DoubleVar()}
+        self.web_search_vars = {1: ctk.BooleanVar(), 2: ctk.BooleanVar()} # NEW
         self.temp_labels = {}
         self.raw_log_displays = {}
         self.available_models = []
