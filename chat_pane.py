@@ -1,4 +1,4 @@
-# --- START OF FINAL, CORRECTED chat_pane.py ---
+# --- START OF FILE chat_pane.py ---
 
 import tkinter as tk
 import customtkinter as ctk
@@ -61,7 +61,11 @@ class ChatPane:
         self.send_button.pack(pady=(0, 2), fill="x")
 
         self.stop_button = ctk.CTkButton(controls_frame, text="Stop", command=lambda: self.app.chat_core.stop_generation(self.chat_id), width=70, state="disabled")
-        self.stop_button.pack(pady=(2, 10), fill="x")
+        self.stop_button.pack(pady=(2, 2), fill="x")
+        
+        # NEW: Regenerate button
+        self.regenerate_button = ctk.CTkButton(controls_frame, text="Regen", command=lambda: self.app.chat_core.regenerate_last_response(self.chat_id), width=70)
+        self.regenerate_button.pack(pady=(2, 10), fill="x")
 
         ctk.CTkCheckBox(controls_frame, text=self.auto_reply_checkbox_text, variable=self.auto_reply_var).pack(anchor="w")
         ctk.CTkLabel(controls_frame, textvariable=self.countdown_var, font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor="w", pady=(5,0))
@@ -74,6 +78,7 @@ class ChatPane:
     def update_ui_for_sending(self):
         self.user_input.configure(state='disabled')
         self.send_button.configure(state='disabled')
+        self.regenerate_button.configure(state='disabled')
         self.stop_button.configure(state='normal')
         self.progress_bar.grid()
         self.progress_bar.start()
@@ -81,6 +86,7 @@ class ChatPane:
     def restore_ui_after_response(self):
         self.user_input.configure(state='normal')
         self.send_button.configure(state='normal')
+        self.regenerate_button.configure(state='normal')
         self.stop_button.configure(state='disabled')
         self.progress_bar.stop()
         self.progress_bar.grid_remove()
@@ -93,47 +99,34 @@ class ChatPane:
         self.current_generation_id += 1
         
         self.reset_html_accumulator()
-        self.chat_display.set_html(self.html_body_content + "</body></html>") # Visually clear the display
+        self.chat_display.set_html(self.html_body_content + "</body></html>")
         
         raw_display = self.app.raw_log_displays.get(self.chat_id)
         if raw_display:
             raw_display.delete('1.0', tk.END)
             
     def reset_html_accumulator(self):
-        """Builds the initial HTML doc structure for the accumulator string."""
         chat_font_size = self.app.chat_font_size_var.get()
         user_message_color = self.app.user_message_color_var.get()
         body_style = f"background-color: {self.app.COLOR_CHAT_DISPLAY}; color: {user_message_color}; font-family: Consolas, monaco, monospace; font-size: {chat_font_size}px; font-weight: normal;"
         self.html_body_content = f"<!DOCTYPE html><html><body style='{body_style}'>"
 
     def render_message_incrementally(self, message):
-        """
-        Generates HTML for a single message, appends it to the internal HTML string,
-        and then updates the display. This is the optimized method.
-        """
         html_segment = self.app.chat_core.generate_message_html(self.chat_id, message)
         self.html_body_content += html_segment
-        
         self.chat_display.set_html(self.html_body_content + "</body></html>")
-        
         self.chat_display.update_idletasks()
         self.chat_display.yview_moveto(1.0)
 
     def render_full_history(self):
-        """
-        Rebuilds the entire HTML content from history and renders it.
-        This is a full, non-performant redraw used for settings changes or loading.
-        """
-        self.reset_html_accumulator() # Reset and get new header styles
+        self.reset_html_accumulator()
         
-        # Regenerate the body content by iterating through history
         for message in self.render_history:
             html_segment = self.app.chat_core.generate_message_html(self.chat_id, message)
             self.html_body_content += html_segment
             
         self.chat_display.set_html(self.html_body_content + "</body></html>")
-        
         self.chat_display.update_idletasks()
         self.chat_display.yview_moveto(1.0)
 
-# --- END OF FINAL, CORRECTED chat_pane.py ---
+# --- END OF FILE chat_pane.py ---

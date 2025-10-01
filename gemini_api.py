@@ -1,10 +1,10 @@
-# --- START OF REFACTORED gemini_api.py ---
+# --- START OF UPDATED gemini_api.py ---
 
 import google.generativeai as genai
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import messagebox
 import threading
-import queue
 import os
 import re
 import math
@@ -58,26 +58,24 @@ class GeminiAPI:
         return self.app.available_models or []
 
     def prime_chat_session(self, chat_id, from_event=False, history=None):
-        pane = self.app.chat_panes[chat_id]
         if not self.app.available_models:
             if from_event: messagebox.showerror("No Models Loaded", "Cannot start chat. Please set a valid API key.")
             return
         try:
             model_name = self.app.model_selectors[chat_id].get()
-            active_config_index = self.app.config.get('active_config_index', 0)
-            agent_config = self.app.config['configurations'][active_config_index][f'gemini_{chat_id}']
-            generation_config = genai.types.GenerationConfig(temperature=agent_config['temperature'])
-            sys_prompt = self.app.options_prompts[chat_id].get("1.0", ctk.END).strip()
+            persona_prompt = self.app.options_prompts[chat_id].get("1.0", ctk.END).strip()
             
-            model = genai.GenerativeModel(model_name, system_instruction=sys_prompt, generation_config=generation_config)
-           
+            model = genai.GenerativeModel(model_name, system_instruction=persona_prompt)
             self.app.chat_sessions[chat_id] = model.start_chat(history=history or [])
             
             if from_event:
+                pane = self.app.chat_panes[chat_id]
                 system_msg_text = f"--- Session reset with model: {model_name} ---" if not history else f"--- Loaded session with model: {model_name} ---"
                 system_msg = {'role': 'model', 'parts': [{'text': system_msg_text}], 'is_ui_only': True}
-                pane.render_history.append(system_msg)
-                pane.render_message_incrementally(system_msg)
+                # Don't add to history here, as load_session/new_session handles it.
+                if not history: # Only for new sessions, not loads
+                    pane.render_history.append(system_msg)
+                    pane.render_message_incrementally(system_msg)
                 self.app.ui_elements._remove_all_files(chat_id)
 
             self.update_token_counts(chat_id, None, reset=True)
@@ -103,8 +101,7 @@ class GeminiAPI:
             response = session.send_message(content, stream=True)
             for chunk in response:
                 if pane.current_generation_id != generation_id: 
-                    response.resolve()
-                    return
+                    response.resolve(); return
                 if chunk.text:
                     full_text_accumulator += chunk.text
                     self.app.response_queue.put({'type': 'stream_chunk', 'chat_id': chat_id, 'text': chunk.text, 'generation_id': generation_id})
@@ -123,38 +120,24 @@ class GeminiAPI:
         
         finally:
             if pane.current_generation_id == generation_id:
-                usage_meta = response.usage_metadata if response else None
-                usage_dict = {'prompt_token_count': usage_meta.prompt_token_count, 'candidates_token_count': usage_meta.candidates_token_count} if usage_meta else None
-                
-                is_ok = False
-                reason = "UNKNOWN"
+                # Combine finalization messages to reduce queue traffic
+                is_ok, reason = False, "UNKNOWN"
                 if response and response.candidates:
                     finish_reason_enum = response.candidates[0].finish_reason
                     reason = finish_reason_enum.name
-                    if reason == "STOP":
-                        is_ok = True
+                    if reason == "STOP": is_ok = True
 
-                # Put a single 'rewind' message which contains the final text for rendering.
-                self.app.response_queue.put({
-                    'type': 'rewind', 
-                    'chat_id': chat_id, 
-                    'text': full_text_accumulator, 
-                    'generation_id': generation_id
-                })
-
-                # Put a separate 'stream_end' for logging, auto-reply, etc.
-                self.app.response_queue.put({
-                    'type': 'stream_end',
-                    'chat_id': chat_id,
-                    'usage': usage_dict,
-                    'user_message': msg,
-                    'full_text': full_text_accumulator,
-                    'generation_id': generation_id
-                })
+                # Message to render the final accumulated text
+                self.app.response_queue.put({'type': 'rewind', 'chat_id': chat_id, 'text': full_text_accumulator, 'generation_id': generation_id})
+                
+                # Message for logging, token counting, and auto-reply
+                usage_meta = response.usage_metadata if response else None
+                usage_dict = {'prompt_token_count': usage_meta.prompt_token_count, 'candidates_token_count': usage_meta.candidates_token_count} if usage_meta else None
+                self.app.response_queue.put({'type': 'stream_end', 'chat_id': chat_id, 'usage': usage_dict, 'user_message': msg, 'full_text': full_text_accumulator, 'generation_id': generation_id})
                 
                 if not is_ok:
                     try:
-                        session.rewind()
+                        session.rewind(); session.rewind()
                         error_text = f"--- Gemini {chat_id} response finished abnormally (Reason: {reason}). Chat history has been repaired. Automated reply chain is stopped. ---"
                         self.app.response_queue.put({'type': 'info', 'chat_id': chat_id, 'text': error_text, 'generation_id': generation_id})
                     except (ValueError, IndexError):
@@ -164,6 +147,9 @@ class GeminiAPI:
     def _start_api_call(self, chat_id, message):
         pane = self.app.chat_panes[chat_id]
         files = pane.file_listbox_paths
+        
+        context_text = self.app.context_prompts[chat_id].get("1.0", tk.END).strip()
+        final_message = f"{context_text}\n\n---\n\n{message}" if context_text else message
         
         if files: 
             system_msg_text = f"Attached: {', '.join([os.path.basename(p) for p in files])}"
@@ -175,14 +161,16 @@ class GeminiAPI:
         pane.current_generation_id += 1
         pane.update_ui_for_sending()
         
-        thread = threading.Thread(target=self.api_call_thread, args=(self.app.chat_sessions[chat_id], message, chat_id, files, pane.current_generation_id))
+        thread = threading.Thread(target=self.api_call_thread, args=(self.app.chat_sessions[chat_id], final_message, chat_id, files, pane.current_generation_id))
         thread.daemon = True
         thread.start()
         
         self.app.ui_elements._remove_all_files(chat_id)
 
     def update_token_counts(self, chat_id, usage_metadata, reset=False):
-        pane = self.app.chat_panes[chat_id]
+        pane = self.app.chat_panes.get(chat_id)
+        if not pane: return
+
         if reset:
             pane.total_tokens = 0
             pane.token_info_var.set(f"Tokens: 0 | 0")
@@ -194,4 +182,4 @@ class GeminiAPI:
         pane.total_tokens += last
         pane.token_info_var.set(f"Tokens: {last} | {pane.total_tokens}")
 
-# --- END OF REFACTORED gemini_api.py ---
+# --- END OF UPDATED gemini_api.py ---

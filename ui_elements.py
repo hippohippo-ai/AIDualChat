@@ -1,10 +1,10 @@
-# --- START OF REFACTORED ui_elements.py ---
+# --- START OF UPDATED ui_elements.py ---
 
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import messagebox, filedialog, colorchooser
 import os
-from chat_pane import ChatPane # Import the new class
+from chat_pane import ChatPane
 
 class UIElements:
     def __init__(self, app_instance, callbacks):
@@ -26,7 +26,6 @@ class UIElements:
         
         self._toggle_left_sidebar()
 
-    # ... (keep _toggle_left_sidebar and _toggle_right_sidebar as they are) ...
     def _toggle_left_sidebar(self):
         is_expanded = self.app.left_sidebar.cget('width') == self.app.SIDEBAR_WIDTH_FULL
         if is_expanded: self.app.left_sidebar.content_frame.pack_forget(); self.app.left_sidebar.configure(width=self.app.SIDEBAR_WIDTH_COLLAPSED); self.app.left_toggle_button.configure(text="▶")
@@ -37,7 +36,6 @@ class UIElements:
         if is_expanded: self.app.right_sidebar.content_frame.pack_forget(); self.app.right_sidebar.configure(width=self.app.SIDEBAR_WIDTH_COLLAPSED); self.app.right_toggle_button.configure(text="◀")
         else: self.app.right_sidebar.configure(width=self.app.SIDEBAR_WIDTH_FULL); self.app.right_sidebar.content_frame.pack(fill="both", expand=True); self.app.right_toggle_button.configure(text="▶")
 
-    # ... (keep _create_left_sidebar, _create_session_management_panel, _create_display_panel as they are) ...
     def _create_left_sidebar(self, parent):
         sidebar = ctk.CTkFrame(parent, width=self.app.SIDEBAR_WIDTH_FULL, fg_color=self.app.COLOR_SIDEBAR, corner_radius=10); sidebar.pack_propagate(False)
         toggle_frame = ctk.CTkFrame(sidebar, fg_color="transparent"); toggle_frame.pack(fill="x", pady=5, padx=5)
@@ -61,7 +59,10 @@ class UIElements:
         ctk.CTkButton(session_content, text="Load Gemini 2", command=lambda: self.callbacks['on_load_session'](2), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15)
         ctk.CTkFrame(session_content, height=1, fg_color=self.app.COLOR_BORDER).pack(fill="x", padx=15, pady=5)
         ctk.CTkButton(session_content, text="Export Gemini 1", command=lambda: self.callbacks['on_export_conversation'](1), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15)
-        ctk.CTkButton(session_content, text="Export Gemini 2", command=lambda: self.callbacks['on_export_conversation'](2), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15, pady=(0,10))
+        ctk.CTkButton(session_content, text="Export Gemini 2", command=lambda: self.callbacks['on_export_conversation'](2), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15)
+        # NEW Smart Export Buttons
+        ctk.CTkButton(session_content, text="Smart Export G1", command=lambda: self.callbacks['on_smart_export'](1), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15)
+        ctk.CTkButton(session_content, text="Smart Export G2", command=lambda: self.callbacks['on_smart_export'](2), fg_color="transparent", text_color=self.app.COLOR_TEXT, anchor="w", font=self.app.FONT_GENERAL).pack(fill="x", padx=15, pady=(0,10))
 
     def _create_display_panel(self, parent):
         display_content = self._create_collapsible_frame(parent, "Display")
@@ -76,19 +77,15 @@ class UIElements:
 
         ctk.CTkLabel(display_content, text="Chat Colors:", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor="w", padx=15, pady=(10,0))
         color_grid_frame = ctk.CTkFrame(display_content, fg_color="transparent"); color_grid_frame.pack(fill="x", padx=15, pady=(0,5)); color_grid_frame.grid_columnconfigure(0, weight=1); color_grid_frame.grid_columnconfigure(1, weight=1)
-
         user_name_frame = ctk.CTkFrame(color_grid_frame, fg_color="transparent"); user_name_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         ctk.CTkLabel(user_name_frame, text="User Name", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack()
         self.user_name_color_button = ctk.CTkButton(user_name_frame, text="", fg_color=self.app.user_name_color_var.get(), width=50, height=25, command=lambda: self._pick_color(self.app.user_name_color_var, self.user_name_color_button)); self.user_name_color_button.pack()
-
         user_message_frame = ctk.CTkFrame(color_grid_frame, fg_color="transparent"); user_message_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
         ctk.CTkLabel(user_message_frame, text="User Message", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack()
         self.user_message_color_button = ctk.CTkButton(user_message_frame, text="", fg_color=self.app.user_message_color_var.get(), width=50, height=25, command=lambda: self._pick_color(self.app.user_message_color_var, self.user_message_color_button)); self.user_message_color_button.pack()
-
         gemini_name_frame = ctk.CTkFrame(color_grid_frame, fg_color="transparent"); gemini_name_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         ctk.CTkLabel(gemini_name_frame, text="Gemini Name", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack()
         self.gemini_name_color_button = ctk.CTkButton(gemini_name_frame, text="", fg_color=self.app.gemini_name_color_var.get(), width=50, height=25, command=lambda: self._pick_color(self.app.gemini_name_color_var, self.gemini_name_color_button)); self.gemini_name_color_button.pack()
-
         gemini_message_frame = ctk.CTkFrame(color_grid_frame, fg_color="transparent"); gemini_message_frame.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
         ctk.CTkLabel(gemini_message_frame, text="Gemini Message", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack()
         self.gemini_message_color_button = ctk.CTkButton(gemini_message_frame, text="", fg_color=self.app.gemini_message_color_var.get(), width=50, height=25, command=lambda: self._pick_color(self.app.gemini_message_color_var, self.gemini_message_color_button)); self.gemini_message_color_button.pack()
@@ -96,25 +93,21 @@ class UIElements:
         ctk.CTkButton(display_content, text="Restore Defaults", command=self.callbacks['on_restore_display_defaults'], font=self.app.FONT_GENERAL).pack(fill="x", padx=15, pady=(10,0))
 
     def _create_central_area(self, parent):
-        tab_view = ctk.CTkTabview(parent, fg_color=self.app.COLOR_INPUT_AREA)
-        tab_view.grid(row=0, column=0, sticky="nsew")
+        tab_view = ctk.CTkTabview(parent, fg_color=self.app.COLOR_INPUT_AREA); tab_view.grid(row=0, column=0, sticky="nsew")
         self.app.central_tab_view = tab_view
-        
-        tab1 = tab_view.add("Gemini 1")
-        tab2 = tab_view.add("Gemini 2")
-        
-        # Instantiate ChatPanes here. The ChatPane's __init__ will build its own UI.
+        tab1 = tab_view.add("Gemini 1"); tab2 = tab_view.add("Gemini 2")
         self.app.chat_panes[1] = ChatPane(self.app, 1, tab1)
         self.app.chat_panes[2] = ChatPane(self.app, 2, tab2)
-        
-        raw_tab_1 = tab_view.add("Gemini 1 (Raw)")
-        raw_tab_2 = tab_view.add("Gemini 2 (Raw)")
-        self._create_raw_log_panel(raw_tab_1, 1)
-        self._create_raw_log_panel(raw_tab_2, 2)
-        
+        raw_tab_1 = tab_view.add("Gemini 1 (Raw)"); raw_tab_2 = tab_view.add("Gemini 2 (Raw)")
+        self._create_raw_log_panel(raw_tab_1, 1); self._create_raw_log_panel(raw_tab_2, 2)
         return tab_view
-    
-    # ... (keep _create_right_sidebar, _create_configuration_selector_panel, _create_model_selector_panel, _create_global_settings_panel as they are) ...
+
+    def _create_raw_log_panel(self, parent, chat_id):
+        parent.grid_columnconfigure(0, weight=1); parent.grid_rowconfigure(0, weight=1)
+        display = ctk.CTkTextbox(parent, wrap="word", font=self.app.FONT_CHAT, state='normal', fg_color=self.app.COLOR_CHAT_DISPLAY, text_color=self.app.COLOR_TEXT)
+        display.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.app.raw_log_displays[chat_id] = display
+
     def _create_right_sidebar(self, parent):
         sidebar = ctk.CTkFrame(parent, width=self.app.SIDEBAR_WIDTH_FULL, fg_color=self.app.COLOR_SIDEBAR, corner_radius=10); sidebar.pack_propagate(False)
         toggle_frame = ctk.CTkFrame(sidebar, fg_color="transparent"); toggle_frame.pack(fill="x", pady=5, padx=5)
@@ -122,12 +115,10 @@ class UIElements:
         
         sidebar.content_frame = ctk.CTkScrollableFrame(sidebar, fg_color="transparent"); sidebar.content_frame.pack(fill="both", expand=True)
         ctk.CTkLabel(sidebar.content_frame, text="CONFIGURATION", font=ctk.CTkFont(family="Roboto", size=18, weight="bold"), text_color=self.app.COLOR_TEXT).pack(pady=(0,10), padx=20, anchor="w")
-
         self._create_configuration_selector_panel(sidebar.content_frame)
         ctk.CTkFrame(sidebar.content_frame, height=1, fg_color=self.app.COLOR_BORDER).pack(fill="x", padx=15, pady=10)
         self._create_model_selector_panel(sidebar.content_frame)
         self._create_global_settings_panel(sidebar.content_frame)
-
         self._create_model_settings_panel(sidebar.content_frame, 1)
         self._create_model_settings_panel(sidebar.content_frame, 2)
         return sidebar
@@ -146,11 +137,9 @@ class UIElements:
     def _create_model_selector_panel(self, parent):
         model_frame = ctk.CTkFrame(parent, fg_color="transparent"); model_frame.pack(fill="x", padx=15, pady=5); model_frame.grid_columnconfigure(0, weight=1)
         model_list = self.app.gemini_api._create_model_list_for_dropdown()
-        
         ctk.CTkLabel(model_frame, text="Gemini 1 Model", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).grid(row=0, column=0, sticky="w")
         self.app.model_selectors[1] = ctk.CTkComboBox(model_frame, values=model_list, command=lambda e, c=1: self.app.gemini_api.on_model_change(c), font=self.app.FONT_GENERAL, dropdown_font=self.app.FONT_GENERAL, state="readonly")
         self.app.model_selectors[1].grid(row=1, column=0, pady=(0,10), sticky="ew")
-
         ctk.CTkLabel(model_frame, text="Gemini 2 Model", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).grid(row=2, column=0, sticky="w")
         self.app.model_selectors[2] = ctk.CTkComboBox(model_frame, values=model_list, command=lambda e, c=2: self.app.gemini_api.on_model_change(c), font=self.app.FONT_GENERAL, dropdown_font=self.app.FONT_GENERAL, state="readonly")
         self.app.model_selectors[2].grid(row=3, column=0, pady=(0,10), sticky="ew")
@@ -161,43 +150,33 @@ class UIElements:
         ctk.CTkEntry(config_frame, textvariable=self.app.delay_var, width=50, font=self.app.FONT_GENERAL).grid(row=0, column=1, sticky="w", padx=10)
         ctk.CTkButton(config_frame, text="Set API Key", command=self.app.gemini_api.prompt_for_api_key, font=self.app.FONT_GENERAL).grid(row=1, column=0, columnspan=2, pady=(10,0), sticky="ew")
 
-
-    def _create_raw_log_panel(self, parent, chat_id):
-        parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(0, weight=1)
-        display = ctk.CTkTextbox(parent, wrap="word", font=self.app.FONT_CHAT, state='normal', fg_color=self.app.COLOR_CHAT_DISPLAY, text_color=self.app.COLOR_TEXT)
-        display.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-        self.app.raw_log_displays[chat_id] = display
-
     def _create_model_settings_panel(self, parent, chat_id):
         content = self._create_collapsible_frame(parent, f"Gemini {chat_id} Settings")
-        ctk.CTkLabel(content, text="System Instructions", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor='w', padx=5, pady=(5,0))
+        
+        ctk.CTkLabel(content, text="角色设定 (Persona)", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor='w', padx=5, pady=(5,0))
         self.app.options_prompts[chat_id] = ctk.CTkTextbox(content, height=100, wrap="word", font=self.app.FONT_CHAT)
-        self.app.options_prompts[chat_id].pack(fill="both", padx=5, pady=2, expand=True)
-        params_frame = ctk.CTkFrame(content, fg_color="transparent")
-        params_frame.pack(fill='x', padx=5, pady=5)
-        self.app.temp_labels[chat_id] = ctk.CTkLabel(params_frame, text="Temperature: 0.00", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED)
-        self.app.temp_labels[chat_id].pack(side='left')
+        self.app.options_prompts[chat_id].pack(fill="x", padx=5, pady=2, expand=True)
+
+        ctk.CTkLabel(content, text="情景指令 (Context)", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor='w', padx=5, pady=(5,0))
+        self.app.context_prompts[chat_id] = ctk.CTkTextbox(content, height=120, wrap="word", font=self.app.FONT_CHAT)
+        self.app.context_prompts[chat_id].pack(fill="x", padx=5, pady=2, expand=True)
+        
+        params_frame = ctk.CTkFrame(content, fg_color="transparent"); params_frame.pack(fill='x', padx=5, pady=5)
+        self.app.temp_labels[chat_id] = ctk.CTkLabel(params_frame, text="Temperature: 0.00", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED); self.app.temp_labels[chat_id].pack(side='left')
         ctk.CTkSlider(params_frame, from_=0, to=1, variable=self.app.temp_vars[chat_id], command=lambda v, c=chat_id: self.update_slider_label(c, 'temp')).pack(side='left', fill='x', expand=True, padx=5)
         
         ctk.CTkLabel(content, text="Files", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor='w', padx=5, pady=(5,0))
-        file_frame = ctk.CTkFrame(content, fg_color=self.app.COLOR_WIDGET_BG, border_color=self.app.COLOR_BORDER, border_width=1)
-        file_frame.pack(fill="both", expand=True, padx=5, pady=5)
-        listbox = tk.Listbox(file_frame, selectmode=tk.EXTENDED, bg=self.app.COLOR_WIDGET_BG, fg=self.app.COLOR_TEXT, borderwidth=0, highlightthickness=0, font=self.app.FONT_SMALL)
-        listbox.pack(side="left", fill="both", expand=True)
+        file_frame = ctk.CTkFrame(content, fg_color=self.app.COLOR_WIDGET_BG, border_color=self.app.COLOR_BORDER, border_width=1); file_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        listbox = tk.Listbox(file_frame, selectmode=tk.EXTENDED, bg=self.app.COLOR_WIDGET_BG, fg=self.app.COLOR_TEXT, borderwidth=0, highlightthickness=0, font=self.app.FONT_SMALL); listbox.pack(side="left", fill="both", expand=True)
         
-        # Link the listbox to the corresponding ChatPane
         pane = self.app.chat_panes.get(chat_id)
-        if pane:
-            pane.file_listbox = listbox
+        if pane: pane.file_listbox = listbox
         
-        file_buttons = ctk.CTkFrame(content, fg_color="transparent")
-        file_buttons.pack(fill="x", pady=5, padx=5)
+        file_buttons = ctk.CTkFrame(content, fg_color="transparent"); file_buttons.pack(fill="x", pady=5, padx=5)
         ctk.CTkButton(file_buttons, text="+", command=lambda c=chat_id: self._open_file_dialog(c), font=self.app.FONT_GENERAL, width=40).pack(side="left", expand=True, padx=2)
         ctk.CTkButton(file_buttons, text="-", command=lambda c=chat_id: self._remove_selected_files(c), font=self.app.FONT_GENERAL, width=40).pack(side="left", expand=True, padx=2)
         ctk.CTkButton(file_buttons, text="x", command=lambda c=chat_id: self._remove_all_files(c), font=self.app.FONT_GENERAL, width=40).pack(side="left", expand=True, padx=2)
 
-    # ... (keep _create_collapsible_frame as is) ...
     def _create_collapsible_frame(self, parent, text):
         container = ctk.CTkFrame(parent, fg_color="transparent"); container.pack(fill="x", padx=5, pady=2)
         header = ctk.CTkFrame(container, fg_color="transparent", cursor="hand2"); header.pack(fill="x")
@@ -234,20 +213,15 @@ class UIElements:
         if param_type == 'temp':
             self.app.temp_labels[chat_id].configure(text=f"Temperature: {self.app.temp_vars[chat_id].get():.2f}")
 
-    # The spinbox is now fixed and more robust.
     def _create_spinbox_entry(self, parent, textvariable, min_value, max_value, width, font):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         button_minus = ctk.CTkButton(frame, text="-", width=20, height=20, font=font, command=lambda: self._decrement_spinbox(textvariable, min_value)); button_minus.pack(side="left", padx=(0,2))
         entry = ctk.CTkEntry(frame, width=width, font=font, justify="center"); entry.pack(side="left")
-        
         entry.insert(0, str(textvariable.get()))
-        
         def on_textvariable_change(*args):
             if entry.winfo_exists():
                 entry.delete(0, tk.END); entry.insert(0, str(textvariable.get()))
-
         textvariable.trace_add("write", on_textvariable_change)
-
         def validate_and_set_value(event=None):
             try:
                 val_str = entry.get()
@@ -255,18 +229,14 @@ class UIElements:
                     is_int = isinstance(textvariable, ctk.IntVar)
                     new_val = int(float(val_str)) if is_int else float(val_str)
                     new_val = max(min_value, min(new_val, max_value))
-                    if textvariable.get() != new_val:
-                        textvariable.set(new_val)
+                    if textvariable.get() != new_val: textvariable.set(new_val)
                 else:
-                    if textvariable.get() != min_value:
-                        textvariable.set(min_value)
+                    if textvariable.get() != min_value: textvariable.set(min_value)
             except (ValueError, tk.TclError):
                 if entry.winfo_exists():
                     entry.delete(0, tk.END); entry.insert(0, str(textvariable.get()))
-
         entry.bind("<Return>", validate_and_set_value)
         entry.bind("<FocusOut>", validate_and_set_value)
-
         button_plus = ctk.CTkButton(frame, text="+", width=20, height=20, font=font, command=lambda: self._increment_spinbox(textvariable, max_value)); button_plus.pack(side="left", padx=(2,0))
         return frame
 
@@ -288,4 +258,4 @@ class UIElements:
             color_var.set(color_code)
             button_widget.configure(fg_color=color_code)
 
-# --- END OF REFACTORED ui_elements.py ---
+# --- END OF UPDATED ui_elements.py ---

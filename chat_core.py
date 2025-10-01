@@ -1,4 +1,4 @@
-# --- START OF REFACTORED chat_core.py ---
+# --- START OF CORRECTED chat_core.py ---
 
 import tkinter as tk
 import customtkinter as ctk
@@ -32,7 +32,7 @@ class ChatCore:
             
         user_message = {'role': 'user', 'parts': [{'text': msg}]}
         pane.render_history.append(user_message)
-        pane.render_message_incrementally(user_message) # Incremental update
+        pane.render_message_incrementally(user_message)
         
         raw_display = self.app.raw_log_displays.get(chat_id)
         if raw_display:
@@ -49,14 +49,9 @@ class ChatCore:
             if not pane: return
 
             msg_type = msg.get('type')
-            if msg.get('generation_id') != pane.current_generation_id and msg_type not in ['info', 'error', 'rewind']: return
+            if msg.get('generation_id') != pane.current_generation_id and msg_type not in ['info', 'error', 'rewind', 'stream_end']: return
 
             if msg_type == 'stream_end':
-                full_text = msg.get('full_text', '')
-                if full_text:
-                    model_message = {'role': 'model', 'parts': [{'text': full_text}], 'is_ui_only': False}
-                    pane.render_history.append(model_message)
-                    # The display was already updated by the 'rewind' message, so just log.
                 pane.restore_ui_after_response()
                 if msg.get('usage'): self.app.gemini_api.update_token_counts(chat_id, msg['usage'])
                 self.log_conversation(chat_id, msg['user_message'], msg.get('full_text', ''))
@@ -65,17 +60,12 @@ class ChatCore:
                 if pane.auto_reply_var.get():
                     self._schedule_follow_up(target_pane_id, msg.get('full_text', ''))
 
-            elif msg_type == 'rewind': # Used for both successful and abnormal stream ends
-                # This message now contains the final, full text. We add it to history and render.
+            elif msg_type == 'rewind':
                 final_text = msg.get('text', '')
-                # To prevent duplicates, remove any partial UI-only message if it exists
-                if pane.render_history and pane.render_history[-1].get('is_ui_only'):
-                    pane.render_history.pop()
-                
-                # Add final message and render it incrementally
-                final_message = {'role': 'model', 'parts': [{'text': final_text}], 'is_ui_only': False}
-                pane.render_message_incrementally(final_message)
-                pane.restore_ui_after_response()
+                if final_text:
+                    final_message = {'role': 'model', 'parts': [{'text': final_text}]}
+                    pane.render_history.append(final_message)
+                    pane.render_message_incrementally(final_message)
 
             elif msg_type in ['error', 'info']:
                 pane.restore_ui_after_response()
@@ -84,23 +74,54 @@ class ChatCore:
                 self.append_message_to_raw_log(chat_id, msg['text'], 'system' if msg_type == 'info' else 'error')
                 pane.render_message_incrementally(system_message)
                 
-            elif msg_type == 'stream_start':
-                # For stream start, add a temporary message that we can update later.
-                # In this simplified incremental model, we just update the raw log.
-                # The main display will be updated at the end.
+            elif msg_type in ['stream_start', 'stream_chunk']:
                 raw_display = self.app.raw_log_displays.get(chat_id)
                 if raw_display:
-                    raw_display.insert(tk.END, f"\n---\n# Gemini {chat_id}:\n")
-                    raw_display.see(tk.END)
-            
-            elif msg_type == 'stream_chunk':
-                raw_display = self.app.raw_log_displays.get(chat_id)
-                if raw_display:
-                    raw_display.insert(tk.END, msg['text'])
+                    if msg_type == 'stream_start':
+                        raw_display.insert(tk.END, f"\n---\n# Gemini {chat_id}:\n")
+                    else:
+                        raw_display.insert(tk.END, msg['text'])
                     raw_display.see(tk.END)
                 
         except queue.Empty: pass
         finally: self.app.root.after(100, self.process_queue)
+    
+    # --- START OF FIX for Regenerate ---
+    def regenerate_last_response(self, chat_id):
+        pane = self.app.chat_panes[chat_id]
+        
+        # 1. Find the index of the last user message that is not a UI-only message.
+        last_user_message_index = -1
+        for i in range(len(pane.render_history) - 1, -1, -1):
+            if pane.render_history[i]['role'] == 'user' and not pane.render_history[i].get('is_ui_only', False):
+                last_user_message_index = i
+                break
+        
+        if last_user_message_index == -1:
+            messagebox.showinfo("Info", "No user message found to regenerate from.")
+            return
+
+        # 2. Get the last user message and trim the history up to that point.
+        # This effectively removes all model responses that came after it.
+        last_user_message = pane.render_history[last_user_message_index]
+        pane.render_history = pane.render_history[:last_user_message_index + 1]
+        
+        # 3. Create a clean history for the API, excluding the last user message itself,
+        # as it will be sent again via send_message.
+        history_for_priming = [msg for msg in pane.render_history[:-1] if not msg.get('is_ui_only')]
+
+        # 4. Re-prime the API session with the cleaned history. This is more robust than rewind().
+        self.app.gemini_api.prime_chat_session(chat_id, history=history_for_priming)
+        
+        # 5. Visually update the UI to show the removed responses.
+        pane.render_full_history()
+
+        # 6. Re-send the last user message to get a new response.
+        last_user_prompt = last_user_message['parts'][0]['text']
+        # We add the user message back to history and UI right before the API call.
+        self.app.gemini_api._start_api_call(chat_id, last_user_prompt)
+    # --- END OF FIX for Regenerate ---
+
 
     def _schedule_follow_up(self, target_id, message):
         try:
@@ -122,13 +143,13 @@ class ChatCore:
 
     def _start_countdown(self, chat_id, remaining_seconds, message_to_send):
         pane = self.app.chat_panes[chat_id]
-        if remaining_seconds > 0 and pane.auto_reply_var.get(): # Check if still enabled
+        if remaining_seconds > 0 and pane.auto_reply_var.get():
             minutes, seconds = divmod(remaining_seconds, 60)
             pane.countdown_var.set(f"Auto-reply in {minutes:02d}:{seconds:02d}")
             self.app.root.after(1000, lambda: self._start_countdown(chat_id, remaining_seconds - 1, message_to_send))
         else:
             pane.countdown_var.set("")
-            if pane.auto_reply_var.get(): # Send only if still checked
+            if pane.auto_reply_var.get():
                 self.send_message(chat_id, message_to_send)
 
     def stop_generation(self, chat_id):
@@ -175,112 +196,98 @@ class ChatCore:
             history = session_data.get('history', [])
             
             pane.clear_session()
-            pane.render_history.extend(history) # Use extend to add all items
+            pane.render_history.extend(history)
             
-            # This primes the API model but does not affect the UI history
             self.app.gemini_api.prime_chat_session(chat_id, history=history, from_event=True)
-            
-            # Now, do a full redraw of the loaded history
             pane.render_full_history()
             
         except Exception as e: messagebox.showerror("Error", f"Failed to load session: {e}")
 
     def rerender_all_panes(self):
-        """Called when global display settings change."""
         for pane in self.app.chat_panes.values():
             pane.render_full_history()
             
-    # HTML Generation Logic (Centralized Here)
-
     def generate_message_html(self, chat_id, message):
-        pane = self.app.chat_panes[chat_id]
         try:
             chat_font_size = self.app.chat_font_size_var.get()
             speaker_font_size = self.app.speaker_font_size_var.get()
         except tk.TclError:
-            chat_font_size = 8
-            speaker_font_size = 12
+            chat_font_size, speaker_font_size = 8, 12
 
         user_name_color, user_message_color = self.app.user_name_color_var.get(), self.app.user_message_color_var.get()
         gemini_name_color, gemini_message_color = self.app.gemini_name_color_var.get(), self.app.gemini_message_color_var.get()
 
-        msg_role = message['role']
-        full_text = "".join([p.get('text', '') for p in message.get('parts', [])])
+        msg_role, full_text = message['role'], "".join([p.get('text', '') for p in message.get('parts', [])])
         content_html_body = self.md.render(full_text)
 
-        # Apply styling with regex
-        h_styles = {
-            1: f"font-size: {int(chat_font_size * 2.0)}px; font-weight: bold;", 2: f"font-size: {int(chat_font_size * 1.5)}px; font-weight: bold;",
-            3: f"font-size: {int(chat_font_size * 1.17)}px; font-weight: bold;", 4: f"font-size: {int(chat_font_size * 1.12)}px; font-weight: bold;",
-            5: f"font-size: {int(chat_font_size * 0.83)}px; font-weight: bold;", 6: f"font-size: {int(chat_font_size * 0.75)}px; font-weight: bold;",
-        }
+        h_styles = { i: f"font-size: {int(chat_font_size * (2.0 - (i-1)*0.25))}px; font-weight: bold;" for i in range(1, 7) }
         pre_style = f"background-color: #2B2B2B; padding: 10px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; font-size: {chat_font_size}px;"
         code_style = f"font-family: Consolas, monaco, monospace; background-color: #3C3F44; padding: 2px 4px; border-radius: 3px; font-size: {chat_font_size}px;"
-        for i in range(1, 7):
-            content_html_body = re.sub(r'<h' + str(i) + r'([^>]*)>', r'<h' + str(i) + r'\1 style="' + h_styles[i] + '">', content_html_body, flags=re.IGNORECASE)
+        for i, style in h_styles.items():
+            content_html_body = re.sub(r'<h' + str(i) + r'([^>]*)>', r'<h' + str(i) + r'\1 style="' + style + '">', content_html_body, flags=re.IGNORECASE)
         content_html_body = re.sub(r'<pre([^>]*)>', r'<pre\1 style="' + pre_style + '">', content_html_body, flags=re.IGNORECASE)
         content_html_body = re.sub(r'<code>', r'<code style="' + code_style + '">', content_html_body)
 
         current_role_color, current_message_color = (user_name_color, user_message_color) if msg_role == 'user' else (gemini_name_color, gemini_message_color)
         role_name = "You" if msg_role == 'user' else f"Gemini {chat_id}"
         
-        return f'''
-        <div style="margin-bottom: 1em; color: {current_message_color}; font-size: {chat_font_size}px;">
-            <b style="font-weight: bold; color: {current_role_color}; font-size: {speaker_font_size}px;">{role_name}:</b>
-            {content_html_body}
-        </div>
-        '''
+        return f'<div style="margin-bottom: 1em; color: {current_message_color}; font-size: {chat_font_size}px;"><b style="font-weight: bold; color: {current_role_color}; font-size: {speaker_font_size}px;">{role_name}:</b>{content_html_body}</div>'
 
     def generate_full_html(self, chat_id):
         pane = self.app.chat_panes[chat_id]
-        chat_font_size = self.app.chat_font_size_var.get()
-        user_message_color = self.app.user_message_color_var.get()
-        
-        body_style = f"background-color: {self.app.COLOR_CHAT_DISPLAY}; color: {user_message_color}; font-family: Consolas, monaco, monospace; font-size: {chat_font_size}px; font-weight: normal;"
+        body_style = f"background-color: {self.app.COLOR_CHAT_DISPLAY}; color: {self.app.user_message_color_var.get()}; font-family: Consolas, monaco, monospace; font-size: {self.app.chat_font_size_var.get()}px; font-weight: normal;"
         html_header = f"<!DOCTYPE html><html><body style='{body_style}'>"
-        html_footer = "</body></html>"
-        
         content = "".join([self.generate_message_html(chat_id, msg) for msg in pane.render_history])
-        
-        return html_header + content + html_footer
+        return html_header + content + "</body></html>"
         
     def export_conversation(self, chat_id):
-        pane = self.app.chat_panes[chat_id]
-        history = pane.render_history
-        if not history:
-            messagebox.showwarning("Export Failed", "There is no conversation to export.")
-            return
-
+        history = self.app.chat_panes[chat_id].render_history
+        if not history: messagebox.showwarning("Export Failed", "There is no conversation to export."); return
         filepath = filedialog.asksaveasfilename(defaultextension=".html", filetypes=[("HTML File", "*.html"), ("Markdown File", "*.md")], title=f"Export Gemini {chat_id} Conversation")
         if not filepath: return
-        
         file_ext = os.path.splitext(filepath)[1].lower()
         history_to_export = [msg for msg in history if not msg.get('is_ui_only', False)]
-        
         try:
-            if file_ext == ".html": content = self._generate_html_export(chat_id, history_to_export)
-            elif file_ext == ".md": content = self._generate_markdown_export(chat_id, history_to_export)
-            else: messagebox.showerror("Export Failed", f"Unsupported file format: {file_ext}"); return
-            
+            content = self._generate_html_export(chat_id, history_to_export) if file_ext == ".html" else self._generate_markdown_export(chat_id, history_to_export)
             with open(filepath, 'w', encoding='utf-8') as f: f.write(content)
             messagebox.showinfo("Export Successful", f"Conversation successfully exported to\n{filepath}")
         except Exception as e: messagebox.showerror("Export Failed", f"An error occurred during export: {e}")
 
+    def smart_export(self, chat_id):
+        pane = self.app.chat_panes[chat_id]
+        if not pane.render_history: messagebox.showwarning("Export Failed", "The conversation is empty."); return
+
+        full_text = "".join(
+            p.get('text', '') 
+            for msg in pane.render_history if msg['role'] == 'model' and not msg.get('is_ui_only')
+            for p in msg.get('parts', [])
+        )
+        
+        extracted_parts = re.findall(r'\[START_SCENE\](.*?)\[END_SCENE\]', full_text, re.DOTALL)
+        if not extracted_parts:
+            messagebox.showinfo("Smart Export", "No content marked with [START_SCENE]...[END_SCENE] was found.")
+            return
+
+        final_content = "\n\n---\n\n".join([part.strip() for part in extracted_parts])
+        filepath = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text File", "*.txt"), ("Markdown File", "*.md")], title=f"Smart Export Gemini {chat_id} Content")
+        if not filepath: return
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f: f.write(final_content)
+            messagebox.showinfo("Export Successful", f"Creative content successfully exported to:\n{filepath}")
+        except Exception as e: messagebox.showerror("Export Failed", f"An error occurred during export: {e}")
+
     def _generate_html_export(self, chat_id, history):
-        chat_font_size = self.app.chat_font_size_var.get()
-        user_message_color = self.app.user_message_color_var.get()
-        body_style = f"background-color: {self.app.COLOR_BACKGROUND}; color: {user_message_color}; font-family: Consolas, monaco, monospace; font-size: {chat_font_size}px; padding: 20px; max-width: 800px; margin: auto;"
+        body_style = f"background-color: {self.app.COLOR_BACKGROUND}; color: {self.app.user_message_color_var.get()}; font-family: Consolas, monaco, monospace; font-size: {self.app.chat_font_size_var.get()}px; padding: 20px; max-width: 800px; margin: auto;"
         html_header = f"<!DOCTYPE html><html><body style='{body_style}'><h1>Conversation with Gemini {chat_id}</h1>"
-        html_footer = "</body></html>"
         content = "".join([self.generate_message_html(chat_id, msg) for msg in history])
-        return html_header + content + html_footer
+        return html_header + content + "</body></html>"
 
     def _generate_markdown_export(self, chat_id, history):
         md_content = f"# Conversation with Gemini {chat_id}\n\n"
         for message in history:
-            msg_role = message['role']
             full_text = "".join([p.get('text', '') for p in message.get('parts', [])])
-            role_name = "**You**" if msg_role == 'user' else f"**Gemini {chat_id}**"
+            role_name = "**You**" if message['role'] == 'user' else f"**Gemini {chat_id}**"
             md_content += f"{role_name}:\n\n{full_text}\n\n---\n\n"
         return md_content
 
@@ -288,6 +295,6 @@ class ChatCore:
         path = os.path.join(self.app.log_dir, f"session_{self.app.session_timestamp}_gemini_{chat_id}.txt")
         with open(path, 'a', encoding='utf-8') as f:
             if user: f.write(f"---\n# You:\n{user}\n")
-            f.write(f"---\n# Gemini {chat_id}:\n{response}\n\n")
+            if response: f.write(f"---\n# Gemini {chat_id}:\n{response}\n\n")
 
-# --- END OF REFACTORED chat_core.py ---
+# --- END OF CORRECTED chat_core.py ---

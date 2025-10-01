@@ -1,4 +1,4 @@
-# --- START OF REFACTORED main.py ---
+# --- START OF UPDATED main.py ---
 
 import customtkinter as ctk
 from tkinter import messagebox
@@ -10,7 +10,7 @@ from config_manager import ConfigManager
 from gemini_api import GeminiAPI
 from ui_elements import UIElements
 from chat_core import ChatCore
-from chat_pane import ChatPane # Import the new class
+from chat_pane import ChatPane
 
 class GeminiChatApp:
     def __init__(self, root):
@@ -46,9 +46,10 @@ class GeminiChatApp:
         self.session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # --- UI Element Dictionaries ---
-        self.chat_panes = {}  # Holds the ChatPane objects
+        self.chat_panes = {}
         self.model_selectors = {}
-        self.options_prompts = {}
+        self.options_prompts = {} # Renamed to Persona
+        self.context_prompts = {} # NEW: For Context
         self.temp_vars = {1: ctk.DoubleVar(), 2: ctk.DoubleVar()}
         self.temp_labels = {}
         self.raw_log_displays = {}
@@ -82,6 +83,7 @@ class GeminiChatApp:
             'on_save_session': self.chat_core.save_session,
             'on_load_session': self.chat_core.load_session,
             'on_export_conversation': self.chat_core.export_conversation,
+            'on_smart_export': self.chat_core.smart_export, # NEW
             'on_restore_display_defaults': self.config_manager._restore_display_settings,
             'on_config_select': self.config_manager._on_config_select,
             'on_save_current_config': self.config_manager._save_current_config,
@@ -104,10 +106,8 @@ class GeminiChatApp:
         if self.available_models:
             for chat_id in [1, 2]: self.gemini_api.prime_chat_session(chat_id)
             
-        # Trigger initial full render based on loaded settings
         self._on_display_setting_change_and_save()
 
-        # Add tracers to re-render when display settings change
         self.chat_font_size_var.trace_add("write", self._on_display_setting_change_and_save)
         self.speaker_font_size_var.trace_add("write", self._on_display_setting_change_and_save)
         self.user_name_color_var.trace_add("write", self._on_display_setting_change_and_save)
@@ -118,9 +118,7 @@ class GeminiChatApp:
         self.chat_core.process_queue()
 
     def _on_display_setting_change_and_save(self, *args):
-        # This callback triggers a full re-render of both panes and saves the config.
         if hasattr(self, 'chat_core') and self.chat_core is not None:
-            # Tell ChatCore to do a full redraw for both panes
             self.chat_core.rerender_all_panes()
             self.config_manager._save_display_settings()
     
@@ -129,4 +127,4 @@ if __name__ == "__main__":
     app = GeminiChatApp(root)
     root.mainloop()
 
-# --- END OF REFACTORED main.py ---
+# --- END OF UPDATED main.py ---
