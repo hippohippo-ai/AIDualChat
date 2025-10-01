@@ -3,3 +3,6 @@ google-generativeai
 markdown-it-py
 tkhtmlview
 ddgs
+structlog
+keyring
+keyrings.alt

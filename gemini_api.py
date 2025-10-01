@@ -5,9 +5,6 @@ import customtkinter as ctk
 from tkinter import messagebox
 import threading
 import os
-import re
-import math
-import time
 from ddgs import DDGS
 
 # This import combination is proven correct by your diagnostic script
@@ -16,9 +13,10 @@ from google.generativeai.protos import FunctionResponse, Part
 
 
 class GeminiAPI:
-    def __init__(self, app_instance):
+    def __init__(self, app_instance, logger):
         self.app = app_instance
         self.lang = app_instance.lang
+        self.logger = logger
         
         self.web_search_tool = Tool(
             function_declarations=[
@@ -62,12 +60,12 @@ class GeminiAPI:
             genai.configure(api_key=key)
             self.app.available_models = self.fetch_available_models()
             self.app.api_key = key
-            self.app.config["api_key"] = key
-            self.app.config_manager._save_config_to_file(self.app.config)
+            self.app.config_manager.save_api_key(key)
             messagebox.showinfo("Success", "API Key is valid. Re-initializing models.")
             self._update_model_dropdowns()
             for chat_id in [1, 2]: self.prime_chat_session(chat_id, from_event=True)
         except Exception as e:
+            self.logger.error("Invalid API Key", error=str(e), exc_info=True)
             messagebox.showerror("Invalid API Key", f"The provided API key is invalid or a network error occurred.\nError: {e}")
 
     def _update_model_dropdowns(self):
@@ -128,6 +126,7 @@ class GeminiAPI:
                 self.update_token_counts(chat_id, None, reset=True)
             
         except Exception as e: 
+            self.logger.error(f"Failed to start chat for Gemini {chat_id}", error=str(e), exc_info=True)
             messagebox.showerror("Model Error", f"Failed to start chat for Gemini {chat_id}.\nError: {e}")
 
     def on_model_change(self, chat_id):
@@ -191,7 +190,7 @@ class GeminiAPI:
             # --- THIS IS THE NEW ROBUSTNESS LOGIC ---
             # If search was enabled and this is the first try, attempt a fallback
             if self.app.web_search_vars[chat_id].get() and not is_fallback_attempt:
-                print(f"Web search attempt failed: {e}. Falling back to normal mode.")
+                self.logger.warning("Web search attempt failed, falling back to normal mode.", error=str(e))
                 
                 # 1. Inform the user in the UI
                 fallback_msg = self.lang.get('web_search_failed_fallback')
@@ -209,9 +208,7 @@ class GeminiAPI:
             
             # --- Original error handling for all other cases ---
             else:
-                import traceback
-                print(f"Error in api_call_thread (is_fallback: {is_fallback_attempt}): {e}")
-                traceback.print_exc()
+                self.logger.error(f"Error in api_call_thread (is_fallback: {is_fallback_attempt})", error=str(e), exc_info=True)
                 self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"API Error: {e}", 'generation_id': generation_id})
         
         finally:

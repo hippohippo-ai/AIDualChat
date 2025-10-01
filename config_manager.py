@@ -5,16 +5,23 @@ import os
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
 import tkinter as tk
+import keyring
 
 class ConfigManager:
     def __init__(self, app_instance):
         self.app = app_instance
         self.config_file = 'config.json'
         self.config = {}
+        self.service_id = "GeminiDualChat"
+
+    def save_api_key(self, api_key):
+        keyring.set_password(self.service_id, "api_key", api_key)
 
     def load_config(self):
+        # Try to get API key from keyring
+        api_key = keyring.get_password(self.service_id, "api_key")
+
         default_config = {
-            "api_key": "PASTE_YOUR_GEMINI_API_KEY_HERE",
             "auto_reply_delay_minutes": 1.0,
             "active_config_index": 0,
             "preferred_models": ["gemini-1.5-pro-latest", "gemini-1.5-flash-latest", "gemini-1.0-pro"],
@@ -23,8 +30,8 @@ class ConfigManager:
                 {
                     "name": f"Config {i}",
                     "description": "Default configuration" if i == 0 else "Empty",
-                    "gemini_1": {"model": "gemini-1.5-pro-latest", "system_prompt": "You are a helpful and concise assistant.", "context": "", "temperature": 0.7, "web_search_enabled": False}, # NEW
-                    "gemini_2": {"model": "gemini-1.5-pro-latest", "system_prompt": "You are a creative and detailed assistant.", "context": "", "temperature": 0.7, "web_search_enabled": False}, # NEW
+                    "gemini_1": {"model": "gemini-1.5-pro-latest", "system_prompt": "You are a helpful and concise assistant.", "context": "", "temperature": 0.7, "web_search_enabled": False},
+                    "gemini_2": {"model": "gemini-1.5-pro-latest", "system_prompt": "You are a creative and detailed assistant.", "context": "", "temperature": 0.7, "web_search_enabled": False},
                 } for i in range(10)
             ],
             "display_settings": {
@@ -39,6 +46,16 @@ class ConfigManager:
         else:
             try:
                 with open(self.config_file, 'r') as f: self.config = json.load(f)
+                # Migrate API key from old config
+                if not api_key and "api_key" in self.config and self.config["api_key"] != "PASTE_YOUR_GEMINI_API_KEY_HERE":
+                    api_key = self.config["api_key"]
+                    self.save_api_key(api_key)
+                
+                # Remove api_key from config file
+                if "api_key" in self.config:
+                    del self.config["api_key"]
+                    self._save_config_to_file(self.config)
+
                 config_changed = False
                 for key, value in default_config.items():
                     if key not in self.config:
@@ -50,7 +67,7 @@ class ConfigManager:
                         if 'context' not in profile[agent]:
                             profile[agent]['context'] = ""
                             config_changed = True
-                        if 'web_search_enabled' not in profile[agent]: # NEW: Migrate old configs
+                        if 'web_search_enabled' not in profile[agent]:
                             profile[agent]['web_search_enabled'] = False
                             config_changed = True
 
@@ -60,6 +77,7 @@ class ConfigManager:
                 with open(self.config_file, 'w') as f: json.dump(default_config, f, indent=4)
                 self.config = default_config
         
+        self.config["api_key"] = api_key if api_key else "PASTE_YOUR_GEMINI_API_KEY_HERE"
         self.app.config = self.config
         
         self.app.lang.set_language(self.config.get("language", "en"))
@@ -75,6 +93,8 @@ class ConfigManager:
 
 
     def _save_config_to_file(self, config_data):
+        if 'api_key' in config_data:
+            del config_data['api_key']
         with open(self.config_file, 'w') as f: json.dump(config_data, f, indent=2)
         
     def save_language_setting(self, lang):

@@ -1,16 +1,11 @@
 # --- START OF UPDATED chat_core.py ---
 
 import tkinter as tk
-import customtkinter as ctk
-import google.generativeai as genai
-import threading
 import queue
 import os
 import json
 from datetime import datetime
 import re
-import time
-import math
 from markdown_it import MarkdownIt
 from tkinter import filedialog, messagebox
 

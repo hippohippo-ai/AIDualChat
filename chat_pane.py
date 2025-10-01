@@ -3,7 +3,6 @@
 import tkinter as tk
 import customtkinter as ctk
 from tkhtmlview import HTMLLabel
-import os
 
 class ChatPane:
     """

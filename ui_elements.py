@@ -2,7 +2,7 @@
 
 import tkinter as tk
 import customtkinter as ctk
-from tkinter import messagebox, filedialog, colorchooser
+from tkinter import filedialog, colorchooser
 import os
 from chat_pane import ChatPane
 

@@ -6,6 +6,8 @@ import google.generativeai as genai
 import os
 from datetime import datetime
 import queue
+import structlog
+from logging_config import setup_logging
 from config_manager import ConfigManager
 from gemini_api import GeminiAPI
 from ui_elements import UIElements
@@ -70,6 +72,7 @@ class GeminiChatApp:
         self.gemini_message_color_var = ctk.StringVar(value="#FFFFFF")
 
         # --- Module Initialization ---
+        self.logger = structlog.get_logger()
         self.lang = LanguageManager() # NEW: Initialize language manager
         
         self.config_manager = ConfigManager(self)
@@ -77,12 +80,9 @@ class GeminiChatApp:
         
         self.delay_var = ctk.StringVar(value=str(self.config.get("auto_reply_delay_minutes", 1.0)))
         
-        self.gemini_api = GeminiAPI(self)
+        self.gemini_api = GeminiAPI(self, self.logger)
         self.api_key = self.config.get("api_key")
         genai.configure(api_key=self.api_key)
-
-        self.log_dir = "logs"
-        os.makedirs(self.log_dir, exist_ok=True)
 
         self.chat_core = ChatCore(self)
         
@@ -107,6 +107,7 @@ class GeminiChatApp:
             self.gemini_api._update_model_dropdowns()
         except Exception as e:
             self.available_models = []
+            self.logger.error("API Connection Error", error=str(e), exc_info=True)
             messagebox.showwarning("API Connection Error", 
                                  f"Could not connect to Google AI. Please provide a valid key.\nError: {e}")
             self.gemini_api.prompt_for_api_key()
@@ -131,6 +132,7 @@ class GeminiChatApp:
             self.config_manager._save_display_settings()
     
 if __name__ == "__main__":
+    setup_logging()
     root = ctk.CTk()
     app = GeminiChatApp(root)
     root.mainloop()
