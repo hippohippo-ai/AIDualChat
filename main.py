@@ -1,6 +1,4 @@
-# --- START OF FILE main.py ---
-
-# Gemini Dual Chat GUI - Refactored Version
+# --- START OF REFACTORED main.py ---
 
 import customtkinter as ctk
 from tkinter import messagebox
@@ -8,11 +6,11 @@ import google.generativeai as genai
 import os
 from datetime import datetime
 import queue
-from markdown_it import MarkdownIt
 from config_manager import ConfigManager
 from gemini_api import GeminiAPI
 from ui_elements import UIElements
 from chat_core import ChatCore
+from chat_pane import ChatPane # Import the new class
 
 class GeminiChatApp:
     def __init__(self, root):
@@ -32,7 +30,6 @@ class GeminiChatApp:
         self.COLOR_WIDGET_BG = "#3C3F44"
         self.COLOR_TEXT = "#FFFFFF"
         self.COLOR_TEXT_MUTED = "#B0B0B0"
-        self.COLOR_TEXT_SELECTED = "#FFFFFF"
         self.COLOR_BORDER = "#4E5157"
         self.FONT_GENERAL = ctk.CTkFont(family="Roboto", size=14)
         self.FONT_BOLD = ctk.CTkFont(family="Roboto", size=14, weight="bold")
@@ -46,33 +43,18 @@ class GeminiChatApp:
         # --- State Management ---
         self.chat_sessions = {}
         self.response_queue = queue.Queue()
-        self.current_generation_id = {1: 0, 2: 0}
         self.session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.render_history = {1: [], 2: []}
 
         # --- UI Element Dictionaries ---
+        self.chat_panes = {}  # Holds the ChatPane objects
         self.model_selectors = {}
         self.options_prompts = {}
         self.temp_vars = {1: ctk.DoubleVar(), 2: ctk.DoubleVar()}
-        self.topp_vars = {1: ctk.DoubleVar(), 2: ctk.DoubleVar()}
-        self.temp_labels, self.topp_labels = {}, {}
-        self.file_lists = {}
-        self.token_info_vars = {1: ctk.StringVar(value="Tokens: 0 | 0"), 2: ctk.StringVar(value="Tokens: 0 | 0")}
-        self.total_tokens = {1:0, 2:0}
-        self.chat_displays = {}
-        self.user_inputs = {}
-        self.send_buttons = {}
-        self.stop_buttons = {}
-        self.progress_bars = {}
-        self.auto_reply_vars = {1: ctk.BooleanVar(value=False), 2: ctk.BooleanVar(value=False)}
-        self.countdown_vars = {1: ctk.StringVar(value=""), 2: ctk.StringVar(value="")}
+        self.temp_labels = {}
         self.raw_log_displays = {}
         self.available_models = []
         self.config_description_entry = None
         
-        # REFACTORED: Markdown-it instance is created here, but configuration is moved to ChatCore.
-        self.md = MarkdownIt('commonmark')
-
         # Font size and color variables
         self.chat_font_size_var = ctk.IntVar(value=8)
         self.speaker_font_size_var = ctk.IntVar(value=12)
@@ -122,8 +104,10 @@ class GeminiChatApp:
         if self.available_models:
             for chat_id in [1, 2]: self.gemini_api.prime_chat_session(chat_id)
             
+        # Trigger initial full render based on loaded settings
         self._on_display_setting_change_and_save()
 
+        # Add tracers to re-render when display settings change
         self.chat_font_size_var.trace_add("write", self._on_display_setting_change_and_save)
         self.speaker_font_size_var.trace_add("write", self._on_display_setting_change_and_save)
         self.user_name_color_var.trace_add("write", self._on_display_setting_change_and_save)
@@ -134,16 +118,15 @@ class GeminiChatApp:
         self.chat_core.process_queue()
 
     def _on_display_setting_change_and_save(self, *args):
-        # This callback now only triggers a re-render and saves the config.
-        # The complex rendering logic is handled inside ChatCore.
+        # This callback triggers a full re-render of both panes and saves the config.
         if hasattr(self, 'chat_core') and self.chat_core is not None:
-            self.chat_core._render_chat_display(1)
-            self.chat_core._render_chat_display(2)
+            # Tell ChatCore to do a full redraw for both panes
+            self.chat_core.rerender_all_panes()
             self.config_manager._save_display_settings()
     
-    # REMOVED: _configure_markdown_renderer method is no longer needed here.
-
 if __name__ == "__main__":
     root = ctk.CTk()
     app = GeminiChatApp(root)
     root.mainloop()
+
+# --- END OF REFACTORED main.py ---
