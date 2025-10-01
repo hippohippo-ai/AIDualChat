@@ -8,3 +8,4 @@ configa.json
 __pycache__/
 build/
 GeminiDualChat.spec
+main.spec

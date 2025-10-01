@@ -204,7 +204,26 @@ class UIElements:
         frame = ctk.CTkFrame(parent, fg_color="transparent"); frame.pack(fill="x", padx=15, pady=(10,5)); frame.grid_columnconfigure(1, weight=1)
         widget = ctk.CTkLabel(frame, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED); widget.grid(row=0, column=0, sticky="w")
         self.lang_updatable_widgets.append((widget, 'auto_reply_delay'))
-        ctk.CTkEntry(frame, textvariable=self.app.delay_var, width=50, font=self.app.FONT_GENERAL).grid(row=0, column=1, sticky="w", padx=10)
+        vcmd = (frame.register(self._validate_float_input), '%P')
+        delay_entry = ctk.CTkEntry(frame, textvariable=self.app.delay_var, width=50, font=self.app.FONT_GENERAL, validate="key", validatecommand=vcmd)
+        delay_entry.grid(row=0, column=1, sticky="w", padx=10)
+
+        def validate_and_set_value(event=None):
+            try:
+                val_str = delay_entry.get()
+                if val_str:
+                    new_val = float(val_str)
+                    if self.app.delay_var.get() != str(new_val):
+                        self.app.delay_var.set(str(new_val))
+                else:
+                    self.app.delay_var.set("1.0")
+            except (ValueError, tk.TclError):
+                if delay_entry.winfo_exists():
+                    delay_entry.delete(0, tk.END)
+                    delay_entry.insert(0, self.app.delay_var.get())
+
+        delay_entry.bind("<Return>", validate_and_set_value)
+        delay_entry.bind("<FocusOut>", validate_and_set_value)
         widget = ctk.CTkButton(frame, text="", command=self.app.gemini_api.prompt_for_api_key, font=self.app.FONT_GENERAL); widget.grid(row=1, column=0, columnspan=2, pady=(10,0), sticky="ew")
         self.lang_updatable_widgets.append((widget, 'set_api_key'))
 
@@ -335,5 +354,14 @@ class UIElements:
         color_code = colorchooser.askcolor(title="Choose color")[1]
         if color_code:
             color_var.set(color_code)
+
+    def _validate_float_input(self, P):
+        if P == "" or P == ".":
+            return True
+        try:
+            float(P)
+            return True
+        except ValueError:
+            return False
 
 # --- END OF FILE ui_elements.py ---
