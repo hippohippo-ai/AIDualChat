@@ -11,6 +11,7 @@ from gemini_api import GeminiAPI
 from ui_elements import UIElements
 from chat_core import ChatCore
 from chat_pane import ChatPane
+from language import LanguageManager # NEW
 
 class GeminiChatApp:
     def __init__(self, root):
@@ -37,7 +38,8 @@ class GeminiChatApp:
         self.FONT_CHAT = ctk.CTkFont(family="Consolas", size=12)
         root.configure(fg_color=self.COLOR_BACKGROUND)
 
-        self.SIDEBAR_WIDTH_FULL = 280
+        self.LEFT_SIDEBAR_WIDTH_FULL = 240  # 新建一个变量给左边用
+        self.RIGHT_SIDEBAR_WIDTH_FULL = 280        # 保留这个给右边用
         self.SIDEBAR_WIDTH_COLLAPSED = 40
 
         # --- State Management ---
@@ -48,15 +50,17 @@ class GeminiChatApp:
         # --- UI Element Dictionaries ---
         self.chat_panes = {}
         self.model_selectors = {}
-        self.options_prompts = {} # Renamed to Persona
-        self.context_prompts = {} # NEW: For Context
+        self.options_prompts = {}
+        self.context_prompts = {}
         self.temp_vars = {1: ctk.DoubleVar(), 2: ctk.DoubleVar()}
         self.temp_labels = {}
         self.raw_log_displays = {}
         self.available_models = []
         self.config_description_entry = None
         
-        # Font size and color variables
+        self.font_size_vars = {} # To hold spinbox variables
+        self.color_vars = {} # To hold color variables
+        
         self.chat_font_size_var = ctk.IntVar(value=8)
         self.speaker_font_size_var = ctk.IntVar(value=12)
         self.user_name_color_var = ctk.StringVar(value="#A9DFBF")
@@ -65,8 +69,11 @@ class GeminiChatApp:
         self.gemini_message_color_var = ctk.StringVar(value="#FFFFFF")
 
         # --- Module Initialization ---
+        self.lang = LanguageManager() # NEW: Initialize language manager
+        
         self.config_manager = ConfigManager(self)
-        self.config_manager.load_config()
+        self.config_manager.load_config() # This will set the language from config
+        
         self.delay_var = ctk.StringVar(value=str(self.config.get("auto_reply_delay_minutes", 1.0)))
         
         self.gemini_api = GeminiAPI(self)
@@ -83,7 +90,7 @@ class GeminiChatApp:
             'on_save_session': self.chat_core.save_session,
             'on_load_session': self.chat_core.load_session,
             'on_export_conversation': self.chat_core.export_conversation,
-            'on_smart_export': self.chat_core.smart_export, # NEW
+            'on_smart_export': self.chat_core.smart_export,
             'on_restore_display_defaults': self.config_manager._restore_display_settings,
             'on_config_select': self.config_manager._on_config_select,
             'on_save_current_config': self.config_manager._save_current_config,

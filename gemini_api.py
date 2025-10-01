@@ -2,7 +2,6 @@
 
 import google.generativeai as genai
 import customtkinter as ctk
-import tkinter as tk
 from tkinter import messagebox
 import threading
 import os
@@ -13,12 +12,13 @@ import time
 class GeminiAPI:
     def __init__(self, app_instance):
         self.app = app_instance
+        self.lang = app_instance.lang
 
     def prompt_for_api_key(self):
+        # ... no changes needed here
         dialog = ctk.CTkInputDialog(text="Please enter your Gemini API Key:", title="API Key Required")
         key = dialog.get_input()
         if not key: return
-
         try:
             genai.configure(api_key=key)
             self.app.available_models = self.fetch_available_models()
@@ -31,31 +31,34 @@ class GeminiAPI:
         except Exception as e:
             messagebox.showerror("Invalid API Key", f"The provided API key is invalid or a network error occurred.\nError: {e}")
 
+
     def _update_model_dropdowns(self):
+        # ... no changes needed here
         model_list = self._create_model_list_for_dropdown()
         if not model_list: return
         for selector in self.app.model_selectors.values(): selector.configure(values=model_list)
-        
         active_config_index = self.app.config.get('active_config_index', 0)
         active_profile = self.app.config['configurations'][active_config_index]
-        
         default1 = active_profile['gemini_1']['model']
         default2 = active_profile['gemini_2']['model']
-        
         self.app.model_selectors[1].set(default1 if default1 in model_list else (model_list[0] if model_list else ""))
         self.app.model_selectors[2].set(default2 if default2 in model_list else (model_list[0] if model_list else ""))
 
     def fetch_available_models(self):
+        # ... no changes needed here
         models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         if not models: raise Exception("No usable models found for your API key.")
         return sorted(models)
 
+
     def _create_model_list_for_dropdown(self):
+        # ... no changes needed here
         preferred = self.app.config.get("preferred_models", [])
         top_list = [m for m in preferred if m in self.app.available_models]
         other_list = sorted([m for m in self.app.available_models if m not in top_list])
         if top_list and other_list: return top_list + ["──────────"] + other_list
         return self.app.available_models or []
+
 
     def prime_chat_session(self, chat_id, from_event=False, history=None):
         if not self.app.available_models:
@@ -66,16 +69,22 @@ class GeminiAPI:
             persona_prompt = self.app.options_prompts[chat_id].get("1.0", ctk.END).strip()
             
             model = genai.GenerativeModel(model_name, system_instruction=persona_prompt)
+            # When priming, history should be a list of Content-like dicts
             self.app.chat_sessions[chat_id] = model.start_chat(history=history or [])
             
             if from_event:
                 pane = self.app.chat_panes[chat_id]
-                system_msg_text = f"--- Session reset with model: {model_name} ---" if not history else f"--- Loaded session with model: {model_name} ---"
-                system_msg = {'role': 'model', 'parts': [{'text': system_msg_text}], 'is_ui_only': True}
-                # Don't add to history here, as load_session/new_session handles it.
-                if not history: # Only for new sessions, not loads
+                if not history: # New session
+                    system_msg_text = self.lang.get('session_reset_msg').format(model_name)
+                    system_msg = {'role': 'model', 'parts': [{'text': system_msg_text}], 'is_ui_only': True}
                     pane.render_history.append(system_msg)
                     pane.render_message_incrementally(system_msg)
+                else: # Loaded session
+                    system_msg_text = self.lang.get('session_loaded_msg').format(model_name)
+                    system_msg = {'role': 'model', 'parts': [{'text': system_msg_text}], 'is_ui_only': True}
+                    pane.render_history.append(system_msg)
+                    # Full render is handled by load_session, so no render call here
+                
                 self.app.ui_elements._remove_all_files(chat_id)
 
             self.update_token_counts(chat_id, None, reset=True)
@@ -89,15 +98,14 @@ class GeminiAPI:
             self.prime_chat_session(chat_id, from_event=True)
 
     def api_call_thread(self, session, msg, chat_id, files, generation_id):
+        # ... no changes needed here
         pane = self.app.chat_panes[chat_id]
         response = None
         full_text_accumulator = ""
         try:
             content = [msg]
             if files: content.extend([genai.upload_file(path=p) for p in files])
-            
             self.app.response_queue.put({'type': 'stream_start', 'chat_id': chat_id, 'generation_id': generation_id})
-            
             response = session.send_message(content, stream=True)
             for chunk in response:
                 if pane.current_generation_id != generation_id: 
@@ -105,7 +113,6 @@ class GeminiAPI:
                 if chunk.text:
                     full_text_accumulator += chunk.text
                     self.app.response_queue.put({'type': 'stream_chunk', 'chat_id': chat_id, 'text': chunk.text, 'generation_id': generation_id})
-
         except Exception as e:
             error_str = str(e)
             if "429" in error_str and ("quota" in error_str.lower() or "rate limit" in error_str.lower()):
@@ -117,24 +124,17 @@ class GeminiAPI:
                 return
             else:
                 self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"API Error: {e}", 'generation_id': generation_id})
-        
         finally:
             if pane.current_generation_id == generation_id:
-                # Combine finalization messages to reduce queue traffic
                 is_ok, reason = False, "UNKNOWN"
                 if response and response.candidates:
                     finish_reason_enum = response.candidates[0].finish_reason
                     reason = finish_reason_enum.name
                     if reason == "STOP": is_ok = True
-
-                # Message to render the final accumulated text
                 self.app.response_queue.put({'type': 'rewind', 'chat_id': chat_id, 'text': full_text_accumulator, 'generation_id': generation_id})
-                
-                # Message for logging, token counting, and auto-reply
                 usage_meta = response.usage_metadata if response else None
                 usage_dict = {'prompt_token_count': usage_meta.prompt_token_count, 'candidates_token_count': usage_meta.candidates_token_count} if usage_meta else None
                 self.app.response_queue.put({'type': 'stream_end', 'chat_id': chat_id, 'usage': usage_dict, 'user_message': msg, 'full_text': full_text_accumulator, 'generation_id': generation_id})
-                
                 if not is_ok:
                     try:
                         session.rewind(); session.rewind()
@@ -144,13 +144,17 @@ class GeminiAPI:
                         error_text = f"--- Gemini {chat_id} response finished abnormally (Reason: {reason}). Could not repair history. Starting a new session is recommended. ---"
                         self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': error_text, 'generation_id': generation_id})
 
-    def _start_api_call(self, chat_id, message):
+    def _start_api_call(self, chat_id, message, is_regenerate=False):
         pane = self.app.chat_panes[chat_id]
+        
+        # In a regenerate, the message is the raw user prompt without context
+        if not is_regenerate:
+            context_text = self.app.context_prompts[chat_id].get("1.0", tk.END).strip()
+            final_message = f"{context_text}\n\n---\n\n{message}" if context_text else message
+        else:
+            final_message = message
+
         files = pane.file_listbox_paths
-        
-        context_text = self.app.context_prompts[chat_id].get("1.0", tk.END).strip()
-        final_message = f"{context_text}\n\n---\n\n{message}" if context_text else message
-        
         if files: 
             system_msg_text = f"Attached: {', '.join([os.path.basename(p) for p in files])}"
             system_msg = {'role': 'user', 'parts': [{'text': system_msg_text}], 'is_ui_only': True}
@@ -168,16 +172,14 @@ class GeminiAPI:
         self.app.ui_elements._remove_all_files(chat_id)
 
     def update_token_counts(self, chat_id, usage_metadata, reset=False):
+        # ... no changes needed here
         pane = self.app.chat_panes.get(chat_id)
         if not pane: return
-
         if reset:
             pane.total_tokens = 0
             pane.token_info_var.set(f"Tokens: 0 | 0")
             return
-            
         if not usage_metadata: return
-        
         last = usage_metadata.get('prompt_token_count', 0) + usage_metadata.get('candidates_token_count', 0)
         pane.total_tokens += last
         pane.token_info_var.set(f"Tokens: {last} | {pane.total_tokens}")

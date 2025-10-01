@@ -1,4 +1,4 @@
-# --- START OF FILE chat_pane.py ---
+# --- START OF FINAL CORRECTED chat_pane.py ---
 
 import tkinter as tk
 import customtkinter as ctk
@@ -13,27 +13,31 @@ class ChatPane:
         self.app = app_instance
         self.chat_id = chat_id
         self.parent = parent_tab
+        self.lang = app_instance.lang
 
         # --- State Management for this Pane ---
         self.render_history = []
         self.total_tokens = 0
         self.current_generation_id = 0
         
-        # --- HTML Content Accumulator for Performance ---
         self.html_body_content = ""
 
         # --- UI Variable Initialization ---
         self.token_info_var = ctk.StringVar(value="Tokens: 0 | 0")
-        other_id = 2 if chat_id == 1 else 1
         self.auto_reply_var = ctk.BooleanVar(value=False)
-        self.auto_reply_checkbox_text = f"Auto-reply to Gemini {other_id}"
         self.countdown_var = ctk.StringVar(value="")
         
         self.file_listbox = None
         self.file_listbox_paths = []
 
+        # --- UI Element Handles ---
+        self.send_button = None
+        self.stop_button = None
+        self.regenerate_button = None
+        self.auto_reply_checkbox = None
+
         self._create_widgets()
-        self.reset_html_accumulator() # Initialize the HTML structure
+        self.reset_html_accumulator()
 
     def _create_widgets(self):
         self.parent.grid_columnconfigure(0, weight=1)
@@ -57,17 +61,18 @@ class ChatPane:
         controls_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
         controls_frame.grid(row=0, column=1, padx=(0, 10), pady=5, sticky="ns")
 
-        self.send_button = ctk.CTkButton(controls_frame, text="Send", command=lambda: self.app.chat_core.send_message(self.chat_id), width=70)
+        self.send_button = ctk.CTkButton(controls_frame, text="", command=lambda: self.app.chat_core.send_message(self.chat_id), width=70)
         self.send_button.pack(pady=(0, 2), fill="x")
 
-        self.stop_button = ctk.CTkButton(controls_frame, text="Stop", command=lambda: self.app.chat_core.stop_generation(self.chat_id), width=70, state="disabled")
+        self.stop_button = ctk.CTkButton(controls_frame, text="", command=lambda: self.app.chat_core.stop_generation(self.chat_id), width=70, state="disabled")
         self.stop_button.pack(pady=(2, 2), fill="x")
         
-        # NEW: Regenerate button
-        self.regenerate_button = ctk.CTkButton(controls_frame, text="Regen", command=lambda: self.app.chat_core.regenerate_last_response(self.chat_id), width=70)
+        self.regenerate_button = ctk.CTkButton(controls_frame, text="", command=lambda: self.app.chat_core.regenerate_last_response(self.chat_id), width=70)
         self.regenerate_button.pack(pady=(2, 10), fill="x")
 
-        ctk.CTkCheckBox(controls_frame, text=self.auto_reply_checkbox_text, variable=self.auto_reply_var).pack(anchor="w")
+        self.auto_reply_checkbox = ctk.CTkCheckBox(controls_frame, text="", variable=self.auto_reply_var)
+        self.auto_reply_checkbox.pack(anchor="w")
+
         ctk.CTkLabel(controls_frame, textvariable=self.countdown_var, font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor="w", pady=(5,0))
         ctk.CTkLabel(controls_frame, textvariable=self.token_info_var, font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor="w", pady=(10,0))
 
@@ -75,6 +80,20 @@ class ChatPane:
         self.progress_bar.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
         self.progress_bar.grid_remove()
     
+    # --- START OF FIX ---
+    def update_text(self):
+        """Updates all language-dependent text within this pane."""
+        if self.send_button and self.send_button.winfo_exists():
+            self.send_button.configure(text=self.lang.get('send'))
+        if self.stop_button and self.stop_button.winfo_exists():
+            self.stop_button.configure(text=self.lang.get('stop'))
+        if self.regenerate_button and self.regenerate_button.winfo_exists():
+            self.regenerate_button.configure(text=self.lang.get('regen'))
+        if self.auto_reply_checkbox and self.auto_reply_checkbox.winfo_exists():
+            other_id = 2 if self.chat_id == 1 else 1
+            self.auto_reply_checkbox.configure(text=self.lang.get('auto_reply_to').format(other_id))
+    # --- END OF FIX ---
+            
     def update_ui_for_sending(self):
         self.user_input.configure(state='disabled')
         self.send_button.configure(state='disabled')
@@ -97,10 +116,8 @@ class ChatPane:
         self.total_tokens = 0
         self.token_info_var.set("Tokens: 0 | 0")
         self.current_generation_id += 1
-        
         self.reset_html_accumulator()
         self.chat_display.set_html(self.html_body_content + "</body></html>")
-        
         raw_display = self.app.raw_log_displays.get(self.chat_id)
         if raw_display:
             raw_display.delete('1.0', tk.END)
@@ -120,13 +137,11 @@ class ChatPane:
 
     def render_full_history(self):
         self.reset_html_accumulator()
-        
         for message in self.render_history:
             html_segment = self.app.chat_core.generate_message_html(self.chat_id, message)
             self.html_body_content += html_segment
-            
         self.chat_display.set_html(self.html_body_content + "</body></html>")
         self.chat_display.update_idletasks()
         self.chat_display.yview_moveto(1.0)
 
-# --- END OF FILE chat_pane.py ---
+# --- END OF FINAL CORRECTED chat_pane.py ---
