@@ -1,3 +1,5 @@
+# --- START OF FIXED core/chat_core.py ---
+
 import tkinter as tk
 import queue
 import os
@@ -7,6 +9,7 @@ import re
 from markdown_it import MarkdownIt
 from tkinter import filedialog, messagebox
 import uuid
+import threading
 
 from services.providers.base_provider import ProviderError
 from config.models import AIConfig
@@ -16,6 +19,7 @@ class ChatCore:
         self.app = app_instance
         self.md = MarkdownIt('commonmark', {'linkify': True}).enable('linkify')
         self.lang = app_instance.lang
+        self.history_lock = threading.Lock()
 
     def send_message(self, chat_id, message_text=None):
         pane = self.app.chat_panes[chat_id]
@@ -37,7 +41,8 @@ class ChatCore:
                 'parts': [{'text': msg}],
                 'model_name': pane.current_model_display_name 
             }
-            pane.render_history.append(user_message)
+            with self.history_lock:
+                pane.render_history.append(user_message)
             pane.render_full_history(scroll_to_bottom=True)
         
         raw_display = self.app.raw_log_displays.get(chat_id)
@@ -89,7 +94,8 @@ class ChatCore:
                     'is_ui_only': True,
                     'model_name': 'System'
                 }
-                pane.render_history.append(system_message)
+                with self.history_lock:
+                    pane.render_history.append(system_message)
                 self.append_message_to_raw_log(chat_id, msg['text'], msg_type)
                 pane.render_full_history(scroll_to_bottom=True)
                 
@@ -97,30 +103,31 @@ class ChatCore:
         finally: self.app.root.after(100, self.app.chat_core.process_queue)
     
     def regenerate_last_response(self, chat_id):
-        pane = self.app.chat_panes[chat_id]
-        
-        last_user_message_index = -1
-        for i in range(len(pane.render_history) - 1, -1, -1):
-            if pane.render_history[i]['role'] == 'user' and not pane.render_history[i].get('is_ui_only', False):
-                last_user_message_index = i
-                break
-        
-        if last_user_message_index == -1:
-            messagebox.showinfo(self.lang.get('info'), self.lang.get('info_no_previous_message'))
-            return
+        with self.history_lock:
+            pane = self.app.chat_panes[chat_id]
+            
+            last_user_message_index = -1
+            for i in range(len(pane.render_history) - 1, -1, -1):
+                if pane.render_history[i]['role'] == 'user' and not pane.render_history[i].get('is_ui_only', False):
+                    last_user_message_index = i
+                    break
+            
+            if last_user_message_index == -1:
+                messagebox.showinfo(self.lang.get('info'), self.lang.get('info_no_previous_message'))
+                return
 
-        first_message_of_turn = last_user_message_index
-        while first_message_of_turn > 0 and pane.render_history[first_message_of_turn - 1]['role'] == 'user':
-            first_message_of_turn -= 1
+            first_message_of_turn = last_user_message_index
+            while first_message_of_turn > 0 and pane.render_history[first_message_of_turn - 1]['role'] == 'user':
+                first_message_of_turn -= 1
 
-        last_user_turn_messages = pane.render_history[first_message_of_turn : last_user_message_index + 1]
-        last_user_prompt = "".join(p['parts'][0]['text'] for p in last_user_turn_messages if not p.get('is_ui_only'))
+            last_user_turn_messages = pane.render_history[first_message_of_turn : last_user_message_index + 1]
+            last_user_prompt = "".join(p['parts'][0]['text'] for p in last_user_turn_messages if not p.get('is_ui_only'))
 
-        pane.render_history = pane.render_history[:first_message_of_turn]
-        
-        for msg in last_user_turn_messages:
-            pane.render_history.append(msg)
-        pane.render_full_history(scroll_to_bottom=True)
+            pane.render_history = pane.render_history[:first_message_of_turn]
+            
+            for msg in last_user_turn_messages:
+                pane.render_history.append(msg)
+            pane.render_full_history(scroll_to_bottom=True)
 
         trace_id = str(uuid.uuid4())
         self.app.main_window.right_sidebar.start_api_call_with_failover(chat_id, last_user_prompt, trace_id)
@@ -152,7 +159,9 @@ class ChatCore:
         filepath = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")], title=f"Save AI {chat_id} Session")
         if not filepath: return
         try:
-            history_to_save = [msg for msg in pane.render_history if not msg.get('is_ui_only', False)]
+            with self.history_lock:
+                history_to_save = [msg for msg in pane.render_history if not msg.get('is_ui_only', False)]
+            
             active_config = self.app.main_window.right_sidebar._gather_ai_config_from_ui(chat_id)
             session_data = {
                 "version": 1,
@@ -162,6 +171,7 @@ class ChatCore:
             with open(filepath, 'w', encoding='utf-8') as f: json.dump(session_data, f, indent=2)
             messagebox.showinfo(self.lang.get('success'), f"Session for AI {chat_id} saved.")
         except Exception as e:
+            self.app.logger.error("Failed to save session", error=str(e), exc_info=True)
             messagebox.showerror(self.lang.get('error'), f"Failed to save session: {e}")
 
     def load_session(self, chat_id):
@@ -172,17 +182,20 @@ class ChatCore:
             with open(filepath, 'r', encoding='utf-8') as f: session_data = json.load(f)
             history = session_data.get('history', [])
             
-            pane.clear_session()
-            pane.render_history.extend(history)
+            with self.history_lock:
+                pane.clear_session()
+                pane.render_history.extend(history)
+            
             pane.render_full_history(scroll_to_bottom=True)
             
             ai_config_data = session_data.get("ai_config")
             if ai_config_data:
                 ai_config = AIConfig(**ai_config_data)
-                self.app.main_window.right_sidebar.apply_config_to_ui(ai_config, chat_id, from_global=True)
+                self.app.main_window.right_sidebar.apply_config_to_ui(ai_config, chat_id)
 
             messagebox.showinfo(self.lang.get('success'), self.lang.get('session_loaded_msg'))
         except Exception as e:
+            self.app.logger.error("Failed to load session", error=str(e), exc_info=True)
             messagebox.showerror(self.lang.get('error'), f"Failed to load session: {e}")
     
     def rerender_all_panes(self):
@@ -215,16 +228,13 @@ class ChatCore:
         pane.token_info_var.set(f"Tokens: {last} | {pane.total_tokens}")
 
     def _start_countdown(self, target_pane, remaining_seconds, message_to_send):
-        """Recursively updates the countdown timer."""
         if remaining_seconds > 0:
             minutes, seconds = divmod(remaining_seconds, 60)
             target_pane.countdown_var.set(f"{minutes:02d}:{seconds:02d}")
-            # Schedule the next update and store the job ID
             job_id = self.app.root.after(1000, 
                 lambda: self._start_countdown(target_pane, remaining_seconds - 1, message_to_send))
             target_pane.set_scheduled_task_id(job_id)
         else:
-            # Time is up, send the message
             target_pane.countdown_var.set("")
             target_pane.set_scheduled_task_id(None)
             self.send_message(target_pane.chat_id, message_text=message_to_send)
@@ -232,8 +242,6 @@ class ChatCore:
     def _schedule_follow_up(self, target_id, message):
         target_pane = self.app.chat_panes.get(target_id)
         if not target_pane: return
-
-        # Cancel any previously scheduled task for this pane
         target_pane.cancel_scheduled_task()
 
         try:
@@ -241,23 +249,91 @@ class ChatCore:
             if delay_minutes <= 0:
                 self.send_message(target_id, message_text=message)
                 return
-                
             delay_seconds = int(delay_minutes * 60)
-
             system_msg_text = self.lang.get('auto_reply_scheduled').format(delay_seconds)
             self.app.response_queue.put({'type': 'system', 'chat_id': target_id, 'text': system_msg_text})
-            
-            # --- THIS IS THE FIX ---
-            # Start the countdown, ensuring the 'message' variable is passed correctly.
             self._start_countdown(target_pane, delay_seconds, message)
-            
         except (ValueError, TypeError):
-            # If delay is invalid, send immediately
             self.send_message(target_id, message_text=message)
 
-    # placeholder for your export functions
+    # --- START OF FIX for Export buttons ---
     def export_conversation(self, chat_id):
-        pass
+        with self.history_lock:
+            history = self.app.chat_panes[chat_id].render_history
+            if not history:
+                messagebox.showwarning(self.lang.get('error'), self.lang.get('error_no_conversation_to_export'))
+                return
+
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".html",
+            filetypes=[("HTML File", "*.html"), ("Markdown File", "*.md")],
+            title=self.lang.get('export_title').format(chat_id)
+        )
+        if not filepath: return
         
+        file_ext = os.path.splitext(filepath)[1].lower()
+        history_to_export = [msg for msg in history if not msg.get('is_ui_only', False)]
+        
+        try:
+            if file_ext == ".html":
+                content = self._generate_html_export(chat_id, history_to_export)
+            else:
+                content = self._generate_markdown_export(chat_id, history_to_export)
+                
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+            messagebox.showinfo(self.lang.get('success'), self.lang.get('export_success_message').format(filepath))
+        except Exception as e:
+            self.app.logger.error("Export failed", error=str(e), exc_info=True)
+            messagebox.showerror(self.lang.get('error'), self.lang.get('export_error_message').format(e))
+
     def smart_export(self, chat_id):
-        pass
+        with self.history_lock:
+            pane = self.app.chat_panes[chat_id]
+            if not pane.render_history:
+                messagebox.showwarning(self.lang.get('error'), self.lang.get('error_no_conversation_to_export'))
+                return
+            full_text = "".join(
+                p.get('text', '') 
+                for msg in pane.render_history 
+                if msg['role'] == 'model' and not msg.get('is_ui_only') 
+                for p in msg.get('parts', [])
+            )
+            
+        extracted_parts = re.findall(r'\[START_SCENE\](.*?)\[END_SCENE\]', full_text, re.DOTALL)
+        if not extracted_parts:
+            messagebox.showinfo(self.lang.get('info'), self.lang.get('smart_export_no_scenes'))
+            return
+            
+        final_content = "\n\n---\n\n".join([part.strip() for part in extracted_parts])
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".txt", 
+            filetypes=[("Text File", "*.txt"), ("Markdown File", "*.md")], 
+            title=self.lang.get('smart_export_title').format(chat_id)
+        )
+        if not filepath: return
+        
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(final_content)
+            messagebox.showinfo(self.lang.get('success'), self.lang.get('export_success_message').format(filepath))
+        except Exception as e:
+            self.app.logger.error("Smart export failed", error=str(e), exc_info=True)
+            messagebox.showerror(self.lang.get('error'), self.lang.get('export_error_message').format(e))
+
+    def _generate_html_export(self, chat_id, history):
+        body_style = f"background-color: {self.app.COLOR_BACKGROUND}; color: {self.app.user_message_color_var.get()}; font-family: sans-serif; font-size: 16px; padding: 20px; max-width: 800px; margin: auto;"
+        html_header = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Conversation with AI {chat_id}</title></head><body style='{body_style}'><h1>Conversation with AI {chat_id}</h1>"
+        content = "".join([self.generate_message_html(chat_id, msg) for msg in history])
+        return html_header + content + "</body></html>"
+
+    def _generate_markdown_export(self, chat_id, history):
+        md_content = f"# Conversation with AI {chat_id}\n\n"
+        for message in history:
+            full_text = "".join([p.get('text', '') for p in message.get('parts', [])])
+            role_name = f"**{self.lang.get('you')}**" if message['role'] == 'user' else f"**{message.get('model_name', f'AI {chat_id}')}**"
+            md_content += f"{role_name}:\n\n{full_text}\n\n---\n\n"
+        return md_content
+    # --- END OF FIX for Export buttons ---
+    
+# --- END OF FIXED core/chat_core.py ---

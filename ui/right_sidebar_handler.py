@@ -1,6 +1,8 @@
+# --- START OF UPDATED right_sidebar_handler.py ---
+
 import customtkinter as ctk
 import threading
-import re # --- BUG #3: Import regex library ---
+import re
 from tkinter import messagebox
 from services.providers.base_provider import ProviderError
 from config.models import AIConfig
@@ -64,13 +66,9 @@ class RightSidebarHandler:
         self.content_frame.pack(fill="both", expand=True)
         return self.sidebar_frame
 
-    # --- BUG #3: Validation function for the delay entry ---
     def _validate_delay_input(self, P):
-        """Validates that the input is a float with at most one decimal place."""
-        # Allow empty string for deletion
         if P == "":
             return True
-        # Regex to match a number with at most one decimal place
         if re.fullmatch(r"^\d*\.?\d?$", P):
             return True
         return False
@@ -88,7 +86,6 @@ class RightSidebarHandler:
         delay_label.grid(row=1, column=0, sticky="w")
         self.lang_updatable_widgets.append((delay_label, 'auto_reply_delay'))
         
-        # --- BUG #3: Register the validation command and apply it to the entry ---
         vcmd = (self.app.root.register(self._validate_delay_input), '%P')
         delay_entry = ctk.CTkEntry(
             frame, 
@@ -100,7 +97,6 @@ class RightSidebarHandler:
         )
         delay_entry.grid(row=1, column=1, sticky="w", padx=10)
 
-    # ... (Rest of the file is identical to the previous correct version) ...
     def _create_configuration_selector_panel(self, parent):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="x", padx=15, pady=0)
@@ -229,18 +225,21 @@ class RightSidebarHandler:
         self.apply_config_to_ui(profile.ai_1, 1, from_global=True)
         self.apply_config_to_ui(profile.ai_2, 2, from_global=True)
 
-    def apply_config_to_ui(self, ai_config, chat_id, from_preset=False, from_global=False):
+    # --- MODIFIED: Added 'update_textboxes' parameter ---
+    def apply_config_to_ui(self, ai_config, chat_id, from_preset=False, from_global=False, update_textboxes=True):
         if not from_preset and not from_global:
             self.preset_vars[chat_id].set(self.lang.get('select_preset'))
         
         self.provider_vars[chat_id].set(ai_config.provider or self.lang.get('select_provider'))
         self.on_provider_select(chat_id, ai_config.provider, set_model=ai_config.model, set_key_id=ai_config.key_id, is_initial_setup=True)
         
-        self.persona_prompts[chat_id].delete("1.0", "end")
-        self.persona_prompts[chat_id].insert("1.0", ai_config.persona_prompt)
-        
-        self.context_prompts[chat_id].delete("1.0", "end")
-        self.context_prompts[chat_id].insert("1.0", ai_config.context_prompt)
+        # --- MODIFIED: Conditionally update persona and context ---
+        if update_textboxes:
+            self.persona_prompts[chat_id].delete("1.0", "end")
+            self.persona_prompts[chat_id].insert("1.0", ai_config.persona_prompt)
+            
+            self.context_prompts[chat_id].delete("1.0", "end")
+            self.context_prompts[chat_id].insert("1.0", ai_config.context_prompt)
         
         self.temp_vars[chat_id].set(ai_config.temperature)
         self.web_search_vars[chat_id].set(ai_config.web_search_enabled)
@@ -279,18 +278,25 @@ class RightSidebarHandler:
         except IndexError:
             self.app.logger.warning("Could not parse key_id from dropdown.", value=key_note_and_id)
 
+    # --- MODIFIED: Implemented the new logic here ---
     def on_preset_select(self, chat_id, preset_name):
         if preset_name.startswith('---'): return
         
         preset = next((p for p in self.app.config_model.presets if p.name == preset_name), None)
         if preset:
             self.app.logger.info(f"Applying preset '{preset.name}' to AI {chat_id}")
+
+            # 1. Create a partial AIConfig from the preset (model, provider, key)
             preset_ai_config = AIConfig(
                 provider=preset.provider,
                 model=preset.model,
                 key_id=preset.key_id
             )
-            self.apply_config_to_ui(preset_ai_config, chat_id, from_preset=True)
+            
+            # 2. Call apply_config_to_ui, but tell it NOT to update textboxes
+            self.apply_config_to_ui(preset_ai_config, chat_id, from_preset=True, update_textboxes=False)
+            
+            # 3. Update the active config with the preset ID for tracking
             self.app.active_ai_config[chat_id]['preset_id'] = preset.id
 
     def _get_sorted_google_models(self, all_models):
@@ -347,6 +353,7 @@ class RightSidebarHandler:
                     self.key_vars[chat_id].set(current_key_item)
                 else:
                     self.key_vars[chat_id].set(key_list[0])
+                # Ensure the active config reflects the initial selection
                 self.on_key_select(chat_id, self.key_vars[chat_id].get())
             else:
                 self.key_vars[chat_id].set(self.lang.get('no_keys_available'))
@@ -493,7 +500,8 @@ class RightSidebarHandler:
                     return
                 else:
                     self.app.logger.error("Failover failed: No other available Google keys.")
-                    self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': self.lang.get('failover_failed_no_keys') + f" Original error: {e}"})
+                    failover_failed_msg = self.lang.get('failover_failed_no_keys', default="Failover failed: No other available Google keys.") + f" Original error: {e}"
+                    self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': failover_failed_msg})
             else:
                  self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': str(e)})
             self.app.root.after(0, pane.restore_ui_after_response)
@@ -502,3 +510,5 @@ class RightSidebarHandler:
             self.app.logger.error("An unexpected error occurred in the API thread.", error=str(e), exc_info=True)
             self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"An unexpected error occurred: {e}"})
             self.app.root.after(0, pane.restore_ui_after_response)
+
+# --- END OF UPDATED right_sidebar_handler.py ---

@@ -1,5 +1,7 @@
-from pydantic import BaseModel, Field, conint, confloat, validator
-from typing import List, Optional
+# --- START OF UPDATED config/models.py ---
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import List, Optional, Any
 import uuid
 
 def new_id():
@@ -9,6 +11,13 @@ class GoogleAPIKey(BaseModel):
     id: str = Field(default_factory=new_id)
     api_key: str
     note: str = ""
+
+    @field_validator('api_key')
+    @classmethod
+    def must_be_ascii(cls, v: str) -> str:
+        if not v.isascii():
+            raise ValueError('API Key must contain only ASCII characters.')
+        return v
 
 class OllamaSettings(BaseModel):
     host: str = "http://localhost:11434"
@@ -27,7 +36,8 @@ class AIConfig(BaseModel):
     preset_id: Optional[str] = None
     persona_prompt: str = "You are a helpful assistant."
     context_prompt: str = ""
-    temperature: confloat(ge=0.0, le=2.0) = 0.7
+    # --- FIX: Replaced confloat with Field validation for Pydantic V2 ---
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     web_search_enabled: bool = False
 
 class ConfigurationProfile(BaseModel):
@@ -37,8 +47,9 @@ class ConfigurationProfile(BaseModel):
     ai_2: AIConfig = Field(default_factory=AIConfig)
 
 class DisplaySettings(BaseModel):
-    chat_font_size: conint(ge=6, le=30) = 12
-    speaker_font_size: conint(ge=6, le=30) = 14
+    # --- FIX: Replaced conint with Field validation for Pydantic V2 ---
+    chat_font_size: int = Field(default=12, ge=6, le=30)
+    speaker_font_size: int = Field(default=14, ge=6, le=30)
     user_name_color: str = "#A9DFBF"
     user_message_color: str = "#FFFFFF"
     ai_name_color: str = "#A9CCE3"
@@ -46,12 +57,13 @@ class DisplaySettings(BaseModel):
 
 class AppConfig(BaseModel):
     version: int = 2
-    auto_reply_delay_minutes: confloat(ge=0.0) = 1.0
-    active_config_index: conint(ge=0, le=9) = 0
+    # --- FIX: Replaced confloat with Field validation for Pydantic V2 ---
+    auto_reply_delay_minutes: float = Field(default=1.0, ge=0.0)
+    # --- FIX: Replaced conint with Field validation for Pydantic V2 ---
+    active_config_index: int = Field(default=0, ge=0, le=9)
     language: str = "en"
     
-    # --- FIXED: Re-added preferred_models ---
-    preferred_models: List[str] = ["gemini-2.5-pro", "gemini-2.5-flash"]
+    preferred_models: List[str] = Field(default_factory=lambda: ["gemini-2.5-pro", "gemini-2.5-flash"])
     
     google_keys: List[GoogleAPIKey] = Field(default_factory=list)
     ollama_settings: OllamaSettings = Field(default_factory=OllamaSettings)
@@ -60,13 +72,20 @@ class AppConfig(BaseModel):
     configurations: List[ConfigurationProfile]
     display_settings: DisplaySettings = Field(default_factory=DisplaySettings)
 
-    @validator('configurations', pre=True, always=True)
-    def ensure_ten_configs(cls, v):
-        if v is None: v = []
-        if len(v) < 10:
-            for i in range(len(v), 10):
-                v.append(ConfigurationProfile(name=f"Config {i}", description=""))
-        return v[:10]
+    @model_validator(mode='before')
+    @classmethod
+    def ensure_ten_configs(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Use .get() to avoid KeyError if the key doesn't exist yet
+            configurations = data.get('configurations', [])
+            if configurations is None: # Handle case where "configurations": null is in the json
+                configurations = []
+
+            if len(configurations) < 10:
+                for i in range(len(configurations), 10):
+                    configurations.append({'name': f"Config {i}", 'description': ""})
+            data['configurations'] = configurations[:10]
+        return data
 
     def get_active_configuration(self):
         return self.configurations[self.active_config_index]
@@ -76,3 +95,5 @@ class AppConfig(BaseModel):
 
     def get_preset_by_id(self, preset_id: str) -> Optional[Preset]:
         return next((p for p in self.presets if p.id == preset_id), None)
+
+# --- END OF UPDATED config/models.py ---

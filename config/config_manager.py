@@ -1,3 +1,5 @@
+# --- START OF UPDATED config/config_manager.py ---
+
 import json
 import os
 import customtkinter as ctk
@@ -6,6 +8,7 @@ import keyring
 from pydantic import ValidationError
 
 from .models import AppConfig, DisplaySettings, GoogleAPIKey
+from services.providers.google_provider import GoogleProvider
 
 class ConfigManager:
     def __init__(self, app_instance):
@@ -30,18 +33,44 @@ class ConfigManager:
                 messagebox.showwarning("Config Error", f"Configuration file is corrupt or invalid. Restoring defaults.\nDetails: {e}")
                 config_to_load = default_config
         
-        migrated_config = self._migrate_old_keyring_key(config_to_load)
+        # --- NEW: Sanitize loaded config before returning ---
+        sanitized_config = self._sanitize_loaded_config(config_to_load)
+
+        migrated_config = self._migrate_old_keyring_key(sanitized_config)
         
         self.save_config(migrated_config)
         return migrated_config
 
+    # --- NEW: Method to clean up invalid entries on startup ---
+    def _sanitize_loaded_config(self, config: AppConfig) -> AppConfig:
+        """
+        Validates existing Google keys in the loaded config and removes invalid ones.
+        This prevents the app from starting with a broken state from a bad config file.
+        """
+        initial_key_count = len(config.google_keys)
+        valid_keys = []
+        for key in config.google_keys:
+            # We only check for basic ASCII validity here, not live API validation,
+            # to ensure a fast startup. Live validation is done in the StateManager.
+            if key.api_key.isascii():
+                valid_keys.append(key)
+            else:
+                self.app.logger.warning("Removing invalid (non-ASCII) Google Key from config on startup.", key_id=key.id, note=key.note)
+
+        if len(valid_keys) < initial_key_count:
+            config.google_keys = valid_keys
+            messagebox.showwarning(
+                self.app.lang.get('info'),
+                self.app.lang.get('info_invalid_keys_removed'),
+                parent=self.app.root
+            )
+        return config
+
+
     def save_config(self, config_model: AppConfig):
         self.app.config_model = config_model
         with open(self.config_file, 'w', encoding='utf-8') as f:
-            # --- MODIFICATION START ---
-            # Replaced .json() with .model_dump_json() for Pydantic V2 compatibility
             f.write(config_model.model_dump_json(indent=4))
-            # --- MODIFICATION END ---
 
     def save_language_setting(self, lang: str):
         if self.app.config_model:
@@ -74,12 +103,16 @@ class ConfigManager:
                 
                 if not any(k.api_key == old_key for k in current_config.google_keys):
                     self.app.logger.info("Migrating key to new config structure.")
-                    new_key_entry = GoogleAPIKey(api_key=old_key, note="Migrated from old version")
-                    current_config.google_keys.append(new_key_entry)
-                    
+                    try:
+                        # Validate before migrating
+                        new_key_entry = GoogleAPIKey(api_key=old_key, note="Migrated from old version")
+                        current_config.google_keys.append(new_key_entry)
+                    except ValidationError:
+                         self.app.logger.warning("Old key from keyring is invalid (non-ASCII) and will not be migrated.")
+
                     try:
                         keyring.delete_password(old_service_id, "api_key")
-                        self.app.logger.info("Successfully migrated and deleted old keyring entry.")
+                        self.app.logger.info("Successfully processed and deleted old keyring entry.")
                     except Exception as e:
                         self.app.logger.error("Failed to delete old keyring entry after migration.", error=str(e))
                 else:
@@ -93,3 +126,5 @@ class ConfigManager:
             self.app.logger.warning("Could not access keyring for migration check.", error=str(e))
             
         return current_config
+
+# --- END OF UPDATED config/config_manager.py ---

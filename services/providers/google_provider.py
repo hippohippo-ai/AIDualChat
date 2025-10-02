@@ -1,3 +1,5 @@
+# --- START OF UPDATED services/providers/google_provider.py ---
+
 import google.generativeai as genai
 from google.generativeai.types import generation_types, Tool, FunctionDeclaration
 from google.generativeai.protos import FunctionResponse, Part
@@ -5,6 +7,7 @@ from google.api_core import exceptions as api_core_exceptions
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import threading
 from ddgs import DDGS
+from typing import Tuple  # --- FIX: Import Tuple for correct type hinting ---
 
 from .base_provider import BaseProvider, ProviderError
 
@@ -38,6 +41,26 @@ class GoogleProvider(BaseProvider):
                 )
             ]
         )
+
+    @classmethod
+    # --- FIX: Changed "-> (bool, str)" to the correct "-> Tuple[bool, str]" ---
+    def validate_api_key(cls, api_key: str) -> Tuple[bool, str]:
+        """
+        Validates a Google API key by making a simple, low-cost API call.
+        Returns a tuple: (is_valid: bool, message: str).
+        """
+        if not api_key.isascii():
+            return False, "API Key must contain only ASCII characters."
+        try:
+            genai.configure(api_key=api_key)
+            genai.list_models()
+            return True, "API Key is valid."
+        except Exception as e:
+            error_str = str(e)
+            if "API_KEY_INVALID" in error_str:
+                return False, "The provided API Key is invalid."
+            else:
+                return False, f"Validation failed: {error_str}"
 
     def _perform_web_search(self, query: str) -> dict:
         self.logger.info("Performing web search", query=query)
@@ -73,16 +96,10 @@ class GoogleProvider(BaseProvider):
                     return status["models"]
         return []
 
-    # --- NEW: Overriding the base method to clean history for Google API ---
     def get_history_for_api(self, render_history):
-        """
-        Cleans the history for the Google API by removing custom fields 
-        and filtering out UI-only messages.
-        """
         cleaned_history = []
         for msg in render_history:
             if not msg.get('is_ui_only', False):
-                # Create a copy with only the fields Google's API understands
                 api_msg = {
                     'role': msg['role'],
                     'parts': msg['parts']
@@ -94,20 +111,30 @@ class GoogleProvider(BaseProvider):
         keys = self.state_manager.get_google_keys()
         for key in keys:
             self.logger.info("Refreshing status for Google Key", key_id=key.id, note=key.note)
-            try:
-                genai.configure(api_key=key.api_key)
-                models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            
+            is_valid, _ = self.validate_api_key(key.api_key)
+            
+            if is_valid:
+                try:
+                    genai.configure(api_key=key.api_key)
+                    models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    with self.lock:
+                        self.key_statuses[key.id] = {
+                            "is_valid": True, "quota": "OK", "reset_time": "N/A", "models": sorted(models)
+                        }
+                    self.logger.info("Google Key is valid.", key_id=key.id)
+                except Exception as e:
+                    with self.lock:
+                        self.key_statuses[key.id] = {
+                            "is_valid": False, "quota": "Permissions Error", "reset_time": "N/A", "models": []
+                        }
+                    self.logger.warning("Google Key is valid but failed to list models.", key_id=key.id, error=str(e))
+            else:
                 with self.lock:
                     self.key_statuses[key.id] = {
-                        "is_valid": True, "quota": "OK", "reset_time": "N/A", "models": sorted(models)
+                        "is_valid": False, "quota": "Invalid", "reset_time": "N/A", "models": []
                     }
-                self.logger.info("Google Key is valid.", key_id=key.id)
-            except Exception as e:
-                with self.lock:
-                    self.key_statuses[key.id] = {
-                        "is_valid": False, "quota": "Error", "reset_time": "N/A", "models": []
-                    }
-                self.logger.warning("Google Key is invalid or failed to refresh.", key_id=key.id, error=str(e))
+                self.logger.warning("Google Key is invalid.", key_id=key.id)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -136,8 +163,6 @@ class GoogleProvider(BaseProvider):
             
             model = genai.GenerativeModel(model_config['model'], system_instruction=persona_prompt)
             
-            # --- THIS IS THE FIX ---
-            # Use the overridden get_history_for_api method to get a clean history
             history = self.get_history_for_api(pane.render_history)
             
             session = model.start_chat(history=history)
@@ -174,7 +199,6 @@ class GoogleProvider(BaseProvider):
                                 
                                 yield {'type': 'status_update', 'text': self.app.lang.get('search_results_info')}
                                 
-                                # Send results back to the model
                                 response_for_tool = self._send_message_with_retry(
                                     session,
                                     Part(function_response=FunctionResponse(name='web_search', response=search_results)),
@@ -203,3 +227,5 @@ class GoogleProvider(BaseProvider):
             logger.error("Error during Google API call", error=str(e), exc_info=True)
             is_quota_error = isinstance(e, api_core_exceptions.ResourceExhausted)
             raise ProviderError(f"Google API Error: {e}", is_fatal=not is_quota_error)
+
+# --- END OF UPDATED services/providers/google_provider.py ---
