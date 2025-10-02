@@ -1,2 +1,2 @@
-pyinstaller --onefile --clean --noconsole --strip --name=GeminiDualChat main.py
+pyinstaller --onefile --clean --noconsole --strip --name=AIDualChat main.py
 pause

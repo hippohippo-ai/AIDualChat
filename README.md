@@ -1,4 +1,4 @@
-# Gemini Windows: AI Dual Chat
+# AI Dual Chat
 
 A Python-based desktop application for interacting with local and cloud-based Large Language Models. It supports Google's Gemini family through their API and local models served via Ollama. The tool provides a dual-chat environment where users can manage two concurrent AI instances, configure their behaviors, and facilitate an auto-reply interaction between them.
 
@@ -29,8 +29,8 @@ A Python-based desktop application for interacting with local and cloud-based La
 
 1.  **Clone the repository**:
     ```bash
-    git clone <https://github.com/hippohippo-ai/GeminiWindows>
-    cd GeminiWindows
+    git clone git clone https://github.com/hippohippo-ai/AIDualChat
+    cd AIDualChat
     ```
 
 2.  **Install dependencies**:
@@ -86,7 +86,7 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
 
 ---
 
-# Gemini Windows: AI 双聊天程序 (Mandarin)
+# AI Dual Chat: AI 双聊天程序 (Mandarin)
 
 一个基于 Python 的桌面应用程序，用于与本地和云端的大语言模型进行交互。它通过 Google API 支持 Gemini 系列模型，并通过 Ollama 支持本地运行的模型。该工具提供了一个双聊天环境，用户可以管理两个并发的 AI 实例，配置它们的行为，并启用它们之间的自动回复交互。
 
@@ -117,8 +117,8 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
 
 1.  **克隆存储库**:
     ```bash
-    git clone <https://github.com/hippohippo-ai/GeminiWindows>
-    cd GeminiWindows
+    git clone https://github.com/hippohippo-ai/AIDualChat
+    cd AIDualChat
     ```
 
 2.  **安装依赖项**:
