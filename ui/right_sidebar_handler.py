@@ -31,7 +31,7 @@ class RightSidebarHandler:
         self.temp_labels = {1: None, 2: None}
         self.web_search_vars = {1: ctk.BooleanVar(), 2: ctk.BooleanVar()}
         
-        self.header_labels = {1: None, 2: None}
+        self.header_labels = {}
         self.dropdown_labels = {}
         
         self.config_selector_var = ctk.StringVar()
@@ -58,6 +58,9 @@ class RightSidebarHandler:
         self._create_model_settings_panel(scrollable_frame, 1)
         self._create_model_settings_panel(scrollable_frame, 2)
         
+        # --- FIXED: Re-added Auto-Reply Delay setting ---
+        self._create_global_settings_panel(scrollable_frame)
+
         self.content_frame.pack(fill="both", expand=True)
         return self.sidebar_frame
 
@@ -85,19 +88,17 @@ class RightSidebarHandler:
         save_btn.grid(row=4, column=0, columnspan=2, sticky="ew")
         self.lang_updatable_widgets.append((save_btn, 'save_active_config'))
         
+    # --- FIXED: Reworked to use a collapsible frame ---
     def _create_model_settings_panel(self, parent, chat_id):
-        frame = ctk.CTkFrame(parent, fg_color="transparent")
-        frame.pack(fill="x", padx=5, pady=(0, 20))
-
-        header_label = ctk.CTkLabel(frame, text="", font=self.app.FONT_BOLD)
-        header_label.pack(anchor="w", padx=15, pady=(5, 10))
+        collapsible_frame, header_label = self._create_collapsible_frame(parent, 'ai_settings', chat_id)
         self.header_labels[chat_id] = header_label
-        self.lang_updatable_widgets.append((header_label, 'ai_settings', chat_id))
+        
+        content_frame = collapsible_frame # The content frame is the one returned
 
         presets = [p.name for p in self.app.config_model.presets]
-        self.preset_selectors[chat_id] = self._create_dropdown(frame, 'preset', self.preset_vars[chat_id], presets, lambda choice, c=chat_id: self.on_preset_select(c, choice))
+        self.preset_selectors[chat_id] = self._create_dropdown(content_frame, 'preset', self.preset_vars[chat_id], presets, lambda choice, c=chat_id: self.on_preset_select(c, choice))
         
-        selectors_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        selectors_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
         selectors_frame.pack(fill="x", padx=0, pady=0)
 
         providers = list(self.app.state_manager.providers.keys())
@@ -107,19 +108,66 @@ class RightSidebarHandler:
         
         self.key_selectors[chat_id] = self._create_dropdown(selectors_frame, 'key', self.key_vars[chat_id], [], lambda choice, c=chat_id: self.on_key_select(c, choice))
         
-        self.persona_prompts[chat_id] = self._create_textbox(frame, 'persona', 120)
-        self.context_prompts[chat_id] = self._create_textbox(frame, 'context', 80)
+        self.persona_prompts[chat_id] = self._create_textbox(content_frame, 'persona', 120)
+        self.context_prompts[chat_id] = self._create_textbox(content_frame, 'context', 80)
         
-        params_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        params_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
         params_frame.pack(fill='x', padx=15, pady=5)
         self.temp_labels[chat_id] = ctk.CTkLabel(params_frame, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED)
         self.temp_labels[chat_id].pack(side='left')
         ctk.CTkSlider(params_frame, from_=0, to=2, variable=self.temp_vars[chat_id], command=lambda v, c=chat_id: self.update_slider_label(c)).pack(side='left', fill='x', expand=True, padx=5)
         self.update_slider_label(chat_id)
 
-        web_search_cb = ctk.CTkCheckBox(frame, text="", variable=self.web_search_vars[chat_id])
+        web_search_cb = ctk.CTkCheckBox(content_frame, text="", variable=self.web_search_vars[chat_id])
         web_search_cb.pack(anchor='w', padx=15, pady=5)
         self.lang_updatable_widgets.append((web_search_cb, 'web_search_enabled'))
+
+    # --- NEW: Function to create global settings like auto-reply delay ---
+    def _create_global_settings_panel(self, parent):
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.pack(fill="x", padx=15, pady=(20, 5))
+        frame.grid_columnconfigure(1, weight=1)
+
+        header_label = ctk.CTkLabel(frame, text=self.lang.get('global_settings'), font=self.app.FONT_BOLD)
+        header_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+        delay_label = ctk.CTkLabel(frame, text=self.lang.get('auto_reply_delay'), font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED)
+        delay_label.grid(row=1, column=0, sticky="w")
+        
+        delay_entry = ctk.CTkEntry(frame, textvariable=self.app.delay_var, width=50, font=self.app.FONT_GENERAL)
+        delay_entry.grid(row=1, column=1, sticky="w", padx=10)
+
+    # --- NEW: Helper for creating collapsible frames ---
+    def _create_collapsible_frame(self, parent, text_key, *args):
+        container = ctk.CTkFrame(parent, fg_color="transparent")
+        container.pack(fill="x", padx=5, pady=2)
+
+        header = ctk.CTkFrame(container, fg_color="transparent", cursor="hand2")
+        header.pack(fill="x")
+
+        chevron_label = ctk.CTkLabel(header, text="▼", font=self.app.FONT_GENERAL, text_color=self.app.COLOR_TEXT_MUTED)
+        chevron_label.pack(side="left", padx=(10,5))
+        
+        header_label = ctk.CTkLabel(header, text="", font=self.app.FONT_BOLD, text_color=self.app.COLOR_TEXT)
+        header_label.pack(side="left")
+        self.lang_updatable_widgets.append((header_label, text_key, *args))
+
+        content_frame = ctk.CTkFrame(container, fg_color="transparent")
+        content_frame.pack(fill="x", after=header)
+        
+        def toggle_content(event=None):
+            if content_frame.winfo_ismapped():
+                content_frame.pack_forget()
+                chevron_label.configure(text="▶")
+            else:
+                content_frame.pack(fill="x", after=header)
+                chevron_label.configure(text="▼")
+        
+        header.bind("<Button-1>", toggle_content)
+        header_label.bind("<Button-1>", toggle_content)
+        chevron_label.bind("<Button-1>", toggle_content)
+        
+        return content_frame, header_label
 
     def _create_dropdown(self, parent, label_key, variable, values, command):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -233,7 +281,10 @@ class RightSidebarHandler:
         
         if preferred_in_list and other_models:
             return preferred_in_list + ["──────────"] + other_models
-        return all_models
+        elif preferred_in_list:
+            return preferred_in_list
+        else:
+            return other_models
 
     def update_selectors_for_pane(self, chat_id):
         config = self.app.active_ai_config[chat_id]
@@ -249,11 +300,15 @@ class RightSidebarHandler:
             self.model_selectors[chat_id].configure(values=models or [self.lang.get('no_models_available')])
             if models:
                 current_model = config.get("model")
-                if current_model and current_model in models:
+                if current_model and current_model in models and "──" not in current_model:
                     self.model_vars[chat_id].set(current_model)
                 else:
-                    self.model_vars[chat_id].set(models[0])
-                    self.app.active_ai_config[chat_id]['model'] = models[0]
+                    first_valid_model = next((m for m in models if "──" not in m), None)
+                    if first_valid_model:
+                        self.model_vars[chat_id].set(first_valid_model)
+                        self.app.active_ai_config[chat_id]['model'] = first_valid_model
+                    else:
+                        self.model_vars[chat_id].set(self.lang.get('no_models_available'))
             else:
                 self.model_vars[chat_id].set(self.lang.get('no_models_available'))
         else:

@@ -41,6 +41,7 @@ class LanguageManager:
                 'web_search_enabled': 'Enable Web Search (Google Only)', 'files': 'Attachments',
                 'confirm_apply_config': 'Applying this profile will reset both chat sessions. Continue?',
                 'config_saved': 'Profile saved successfully.', 'error_provider_model_selection': 'Error: Provider or model not selected.',
+                'global_settings': 'Global Settings','auto_reply_delay': 'Auto-Reply Delay (min):',
                 # Model Manager
                 'provider_google': 'Google', 'provider_ollama': 'Ollama', 'presets': 'Presets',
                 'save_and_refresh': 'Save & Refresh', 'refresh': 'Refresh', 'add_key': 'Add Key',
@@ -96,6 +97,7 @@ class LanguageManager:
                 'preset_name': '预设名称:', 'add_preset': '添加预设', 'delete_preset': '删除选中',
                 'saved_presets': '已保存的预设', 'error_preset_fields': '预设名称、服务商和模型为必填项。',
                 'error_preset_key': '谷歌预设需要选择一个 API 密钥。',
+                'global_settings': '全局设置','auto_reply_delay': '自动回复延迟 (分钟):',
             }
         }
         self.language = initial_language

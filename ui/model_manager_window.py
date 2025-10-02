@@ -33,13 +33,20 @@ class ModelManagerWindow(ctk.CTkToplevel):
 
     def update_text(self):
         self.title(self.lang.get('model_manager'))
-        # This is a bit of a hack to update tab names
-        self.tab_view._segmented_button.configure(values=[self.lang.get('provider_google'), self.lang.get('provider_ollama'), self.lang.get('presets')])
-        # Ideally, we would have a list of all widgets to update, but for now we rebuild
+        # This is a bit of a hack to update tab names. A better solution would involve
+        # storing tab references, but this works for now.
+        if self.tab_view._segmented_button:
+            self.tab_view._segmented_button.configure(values=[
+                self.lang.get('provider_google'), 
+                self.lang.get('provider_ollama'), 
+                self.lang.get('presets')
+            ])
+        # Rebuild content to reflect new language
         self.create_google_tab()
         self.create_ollama_tab()
         self.create_presets_tab()
 
+    # --- Google Tab ---
     def create_google_tab(self):
         # Clear previous widgets
         for widget in self.google_tab.winfo_children():
@@ -104,25 +111,105 @@ class ModelManagerWindow(ctk.CTkToplevel):
             quota_label.grid(row=0, column=3, padx=5, pady=5, sticky="e")
     
     def _add_google_key(self):
-        # ... (implementation is correct)
-        pass
+        key_value = self.google_key_value_entry.get().strip()
+        key_note = self.google_key_note_entry.get().strip()
+        
+        if not key_value:
+            messagebox.showerror(self.lang.get('error'), "API Key value cannot be empty.")
+            return
+
+        new_key = GoogleAPIKey(api_key=key_value, note=key_note)
+        self.config_model.google_keys.append(new_key)
+        self.app.config_manager.save_config(self.config_model)
+        
+        self.google_key_value_entry.delete(0, 'end')
+        self.google_key_note_entry.delete(0, 'end')
+        self.update_google_keys_list()
+        self.app.state_manager.refresh_all_provider_states(force=True)
 
     def _delete_selected_google_keys(self):
-        # ... (implementation is correct)
-        pass
+        ids_to_delete = {key_id for key_id, var in self._google_key_widgets.items() if var.get()}
+        if not ids_to_delete:
+            return
 
+        self.config_model.google_keys = [key for key in self.config_model.google_keys if key.id not in ids_to_delete]
+        self.app.config_manager.save_config(self.config_model)
+        
+        self.update_google_keys_list()
+
+    # --- Ollama Tab ---
     def create_ollama_tab(self):
-        # ... (implementation is correct)
-        pass
+        for widget in self.ollama_tab.winfo_children():
+            widget.destroy()
+
+        self.ollama_tab.grid_columnconfigure(0, weight=1)
+
+        settings_frame = ctk.CTkFrame(self.ollama_tab)
+        settings_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+        settings_frame.grid_columnconfigure(1, weight=1)
+
+        host_label = ctk.CTkLabel(settings_frame, text=self.lang.get('ollama_host'))
+        host_label.grid(row=0, column=0, padx=5, pady=5)
+        
+        self.ollama_host_entry = ctk.CTkEntry(settings_frame)
+        self.ollama_host_entry.insert(0, self.config_model.ollama_settings.host)
+        self.ollama_host_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        
+        save_button = ctk.CTkButton(settings_frame, text=self.lang.get('save_and_refresh'), command=self._save_and_refresh_ollama)
+        save_button.grid(row=0, column=2, padx=5, pady=5)
+        
+        status_frame = ctk.CTkFrame(self.ollama_tab, fg_color=("gray85", "gray17"))
+        status_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
+        status_frame.grid_columnconfigure(1, weight=1)
+        
+        ctk.CTkLabel(status_frame, text=self.lang.get('ollama_status')).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.ollama_status_label = ctk.CTkLabel(status_frame, text="Unknown", anchor="w")
+        self.ollama_status_label.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        ctk.CTkLabel(status_frame, text=self.lang.get('ollama_version')).grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.ollama_version_label = ctk.CTkLabel(status_frame, text="Unknown", anchor="w")
+        self.ollama_version_label.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        
+        self.ollama_models_frame = ctk.CTkScrollableFrame(self.ollama_tab, label_text=self.lang.get('ollama_models'))
+        self.ollama_models_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
+        self.ollama_tab.grid_rowconfigure(2, weight=1)
+        
+        self.update_ollama_status()
     
     def _save_and_refresh_ollama(self):
-        # ... (implementation is correct)
-        pass
+        new_host = self.ollama_host_entry.get().strip()
+        if not new_host:
+            messagebox.showerror(self.lang.get('error'), "Ollama host cannot be empty.")
+            return
+        
+        self.config_model.ollama_settings.host = new_host
+        self.app.config_manager.save_config(self.config_model)
+        self.app.state_manager.get_provider("Ollama").refresh_status()
+        # The refresh will trigger a UI update via the StateManager's callback mechanism
 
     def update_ollama_status(self):
-        # ... (implementation is correct)
-        pass
+        status_info = self.app.state_manager.get_provider("Ollama").get_status()
+        
+        if status_info.get("is_available"):
+            self.ollama_status_label.configure(text=self.lang.get('status_ok'), text_color="green")
+        else:
+            self.ollama_status_label.configure(text=status_info.get("version", self.lang.get('status_unavailable')), text_color="red")
+        
+        self.ollama_version_label.configure(text=status_info.get("version", "N/A"))
+        
+        for widget in self.ollama_models_frame.winfo_children():
+            widget.destroy()
+            
+        models = status_info.get("models", [])
+        if not models:
+             label = ctk.CTkLabel(self.ollama_models_frame, text=self.lang.get('no_models_available'), text_color="gray")
+             label.pack(anchor="w", padx=10)
+        else:
+            for model_name in models:
+                label = ctk.CTkLabel(self.ollama_models_frame, text=model_name)
+                label.pack(anchor="w", padx=10)
 
+    # --- Presets Tab ---
     def create_presets_tab(self):
         for widget in self.presets_tab.winfo_children():
             widget.destroy()
@@ -169,8 +256,11 @@ class ModelManagerWindow(ctk.CTkToplevel):
         provider = self.app.state_manager.get_provider(provider_name)
         if provider:
             models = provider.get_models()
+            if provider_name == "Google":
+                # Apply preferred sorting here too
+                models = self.app.main_window.right_sidebar._get_sorted_google_models(models)
             self._preset_model_selector.configure(values=models or [])
-            self._preset_model_var.set(models[0] if models else self.lang.get('no_models_available'))
+            self._preset_model_var.set(next((m for m in models if "──" not in m), self.lang.get('no_models_available')))
         
         if provider_name == "Google":
             self._preset_key_selector.configure(state="readonly")
@@ -198,7 +288,6 @@ class ModelManagerWindow(ctk.CTkToplevel):
                 messagebox.showerror(self.lang.get('error'), self.lang.get('error_preset_key'))
                 return
             try:
-                # Find the full key ID from the display text
                 key_suffix = key_selection.split('(')[-1][:-1]
                 key_obj = next((k for k in self.app.config_model.google_keys if k.id.endswith(key_suffix)), None)
                 if key_obj:
