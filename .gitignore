@@ -9,3 +9,5 @@ __pycache__/
 build/
 GeminiDualChat.spec
 main.spec
+AIDualChat.zip
+zip.bat

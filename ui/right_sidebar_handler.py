@@ -1,4 +1,4 @@
-# --- START OF UPDATED right_sidebar_handler.py ---
+# --- START OF CORRECTED right_sidebar_handler.py ---
 
 import customtkinter as ctk
 import threading
@@ -66,10 +66,31 @@ class RightSidebarHandler:
         self.content_frame.pack(fill="both", expand=True)
         return self.sidebar_frame
 
+    # --- START OF FIX: This new method is the central point for UI updates from the state manager ---
+    def handle_state_update(self, is_startup=False):
+        """
+        Called by StateManager after any background state refresh.
+        This ensures the UI reflects the latest available models, keys, etc.
+        """
+        self.app.logger.info("Handling state update in RightSidebar.")
+        
+        # Update dropdowns for both AI panes
+        self.update_selectors_for_pane(1)
+        self.update_selectors_for_pane(2)
+
+        # If it's the very first update on startup, re-apply the initial config
+        # to ensure the saved model is selected correctly now that model lists are populated.
+        if is_startup:
+            self.app.logger.info("Re-applying initial configuration after first state refresh.")
+            active_profile = self.app.config_model.get_active_configuration()
+            self.apply_config_to_ui(active_profile.ai_1, 1, from_global=True)
+            self.apply_config_to_ui(active_profile.ai_2, 2, from_global=True)
+    # --- END OF FIX ---
+
     def _validate_delay_input(self, P):
         if P == "":
             return True
-        if re.fullmatch(r"^\d*\.?\d?$", P):
+        if re.fullmatch(r"^\d*\.?\d*$", P): # Allow more flexible float input
             return True
         return False
 
@@ -128,7 +149,7 @@ class RightSidebarHandler:
         content_frame = collapsible_frame
 
         presets = [p.name for p in self.app.config_model.presets]
-        self.preset_selectors[chat_id] = self._create_dropdown(content_frame, 'preset', self.preset_vars[chat_id], presets, lambda choice, c=chat_id: self.on_preset_select(c, choice))
+        self.preset_selectors[chat_id] = self._create_dropdown(content_frame, 'preset', self.preset_vars[chat_id], presets, lambda choice, c=chat_id: self.on_preset_select(c, choice), is_preset_selector=True)
         
         selectors_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
         selectors_frame.pack(fill="x", padx=0, pady=0)
@@ -136,7 +157,7 @@ class RightSidebarHandler:
         providers = list(self.app.state_manager.providers.keys())
         self.provider_selectors[chat_id] = self._create_dropdown(selectors_frame, 'provider', self.provider_vars[chat_id], providers, lambda choice, c=chat_id: self.on_provider_select(c, choice))
 
-        self.model_selectors[chat_id] = self._create_dropdown(selectors_frame, 'model', self.model_vars[chat_id], [], lambda choice, c=chat_id: self.on_model_select(c, choice))
+        self.model_selectors[chat_id] = self._create_dropdown(selectors_frame, 'model', self.model_vars[chat_id], [], lambda choice, c=chat_id: self.on_model_select(c, choice), is_model_selector=True, chat_id_for_model=chat_id)
         
         self.key_selectors[chat_id] = self._create_dropdown(selectors_frame, 'api_key', self.key_vars[chat_id], [], lambda choice, c=chat_id: self.on_key_select(c, choice))
         
@@ -185,7 +206,8 @@ class RightSidebarHandler:
         
         return content_frame, header_label
 
-    def _create_dropdown(self, parent, label_key, variable, values, command):
+    # --- START OF FIX: Modified to bind click event for model selector ---
+    def _create_dropdown(self, parent, label_key, variable, values, command, is_model_selector=False, chat_id_for_model=None, is_preset_selector=False):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="x", padx=15, pady=(3, 3), anchor="w")
         label = ctk.CTkLabel(frame, text=self.lang.get(label_key), width=80, anchor="w")
@@ -194,7 +216,15 @@ class RightSidebarHandler:
         
         dropdown = ctk.CTkComboBox(frame, variable=variable, values=values or [], command=command, state="readonly")
         dropdown.pack(side="left", fill="x", expand=True)
+
+        if is_model_selector and chat_id_for_model:
+            dropdown.bind('<Button-1>', lambda e, c=chat_id_for_model: self.on_model_selector_click(c))
+        
+        if is_preset_selector:
+             dropdown.bind('<Button-1>', lambda e: self.update_all_presets_selectors())
+        
         return dropdown
+    # --- END OF FIX ---
 
     def _create_textbox(self, parent, label_key, height):
         label = ctk.CTkLabel(parent, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED)
@@ -225,7 +255,6 @@ class RightSidebarHandler:
         self.apply_config_to_ui(profile.ai_1, 1, from_global=True)
         self.apply_config_to_ui(profile.ai_2, 2, from_global=True)
 
-    # --- MODIFIED: Added 'update_textboxes' parameter ---
     def apply_config_to_ui(self, ai_config, chat_id, from_preset=False, from_global=False, update_textboxes=True):
         if not from_preset and not from_global:
             self.preset_vars[chat_id].set(self.lang.get('select_preset'))
@@ -233,7 +262,6 @@ class RightSidebarHandler:
         self.provider_vars[chat_id].set(ai_config.provider or self.lang.get('select_provider'))
         self.on_provider_select(chat_id, ai_config.provider, set_model=ai_config.model, set_key_id=ai_config.key_id, is_initial_setup=True)
         
-        # --- MODIFIED: Conditionally update persona and context ---
         if update_textboxes:
             self.persona_prompts[chat_id].delete("1.0", "end")
             self.persona_prompts[chat_id].insert("1.0", ai_config.persona_prompt)
@@ -244,6 +272,13 @@ class RightSidebarHandler:
         self.temp_vars[chat_id].set(ai_config.temperature)
         self.web_search_vars[chat_id].set(ai_config.web_search_enabled)
 
+    # --- START OF FIX: Added on_model_selector_click ---
+    def on_model_selector_click(self, chat_id):
+        """Called when the user clicks on the model dropdown, ensures the list is up to date."""
+        self.app.logger.info(f"Model selector for AI {chat_id} clicked, refreshing list.")
+        self.update_selectors_for_pane(chat_id)
+    # --- END OF FIX ---
+    
     def on_provider_select(self, chat_id, provider_name, set_model=None, set_key_id=None, is_initial_setup=False):
         if not provider_name or provider_name.startswith('---'):
             self.model_selectors[chat_id].configure(values=[])
@@ -278,7 +313,6 @@ class RightSidebarHandler:
         except IndexError:
             self.app.logger.warning("Could not parse key_id from dropdown.", value=key_note_and_id)
 
-    # --- MODIFIED: Implemented the new logic here ---
     def on_preset_select(self, chat_id, preset_name):
         if preset_name.startswith('---'): return
         
@@ -286,17 +320,13 @@ class RightSidebarHandler:
         if preset:
             self.app.logger.info(f"Applying preset '{preset.name}' to AI {chat_id}")
 
-            # 1. Create a partial AIConfig from the preset (model, provider, key)
             preset_ai_config = AIConfig(
                 provider=preset.provider,
                 model=preset.model,
                 key_id=preset.key_id
             )
             
-            # 2. Call apply_config_to_ui, but tell it NOT to update textboxes
             self.apply_config_to_ui(preset_ai_config, chat_id, from_preset=True, update_textboxes=False)
-            
-            # 3. Update the active config with the preset ID for tracking
             self.app.active_ai_config[chat_id]['preset_id'] = preset.id
 
     def _get_sorted_google_models(self, all_models):
@@ -324,19 +354,18 @@ class RightSidebarHandler:
                 models = self._get_sorted_google_models(models)
 
             self.model_selectors[chat_id].configure(values=models or [self.lang.get('no_models_available')])
-            if models:
-                current_model = config.get("model")
-                if current_model and current_model in models and "──" not in current_model:
-                    self.model_vars[chat_id].set(current_model)
-                else:
-                    first_valid_model = next((m for m in models if "──" not in m), None)
-                    if first_valid_model:
-                        self.model_vars[chat_id].set(first_valid_model)
-                        self.app.active_ai_config[chat_id]['model'] = first_valid_model
-                    else:
-                        self.model_vars[chat_id].set(self.lang.get('no_models_available'))
+            # --- START OF FIX: Simplified and more robust model setting ---
+            current_model = config.get("model")
+            if current_model and current_model in models:
+                self.model_vars[chat_id].set(current_model)
+            elif models:
+                first_valid_model = next((m for m in models if "──" not in m), self.lang.get('no_models_available'))
+                self.model_vars[chat_id].set(first_valid_model)
+                if not first_valid_model.startswith("---"):
+                    self.app.active_ai_config[chat_id]['model'] = first_valid_model
             else:
                 self.model_vars[chat_id].set(self.lang.get('no_models_available'))
+            # --- END OF FIX ---
         else:
             self.model_selectors[chat_id].configure(values=[])
             self.model_vars[chat_id].set(self.lang.get('select_provider'))
@@ -353,8 +382,7 @@ class RightSidebarHandler:
                     self.key_vars[chat_id].set(current_key_item)
                 else:
                     self.key_vars[chat_id].set(key_list[0])
-                # Ensure the active config reflects the initial selection
-                self.on_key_select(chat_id, self.key_vars[chat_id].get())
+                    self.on_key_select(chat_id, key_list[0]) # Make sure active config is updated
             else:
                 self.key_vars[chat_id].set(self.lang.get('no_keys_available'))
         else:
@@ -377,8 +405,11 @@ class RightSidebarHandler:
         for i in [1, 2]:
             selector = self.preset_selectors.get(i)
             if selector:
+                current_val = self.preset_vars[i].get()
                 selector.configure(values=presets or [self.lang.get('no_presets_available')])
-                selector.set(self.lang.get('select_preset'))
+                if current_val not in presets:
+                    selector.set(self.lang.get('select_preset'))
+
 
     def update_all_text(self):
         for widget, key, *args in self.lang_updatable_widgets:
@@ -450,7 +481,7 @@ class RightSidebarHandler:
         self.config_selector.configure(values=config_display_names)
         self.config_selector_var.set(f"{profile.name} | {profile.description}")
         
-        messagebox.showinfo(self.lang.get('success'), self.lang.get('config_saved'))
+        messagebox.showinfo(self.lang.get('success'), self.lang.get('config_saved', default='Configuration saved.'))
 
     def start_api_call_with_failover(self, chat_id, message, trace_id):
         thread = threading.Thread(target=self._api_call_thread_with_failover, args=(chat_id, message, trace_id))
@@ -511,4 +542,4 @@ class RightSidebarHandler:
             self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"An unexpected error occurred: {e}"})
             self.app.root.after(0, pane.restore_ui_after_response)
 
-# --- END OF UPDATED right_sidebar_handler.py ---
+# --- END OF CORRECTED right_sidebar_handler.py ---

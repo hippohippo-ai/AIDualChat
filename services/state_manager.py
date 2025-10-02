@@ -1,3 +1,5 @@
+# --- START OF CORRECTED state_manager.py ---
+
 import threading
 import time
 from collections import deque
@@ -36,9 +38,8 @@ class StateManager:
 
     def _run_refresh_loop(self):
         self.app.logger.info("Background refresh loop started.")
-        # Initial refresh with shorter delay
-        time.sleep(5) 
-        self.refresh_all_provider_states()
+        # Initial refresh on startup
+        self.refresh_all_provider_states(is_startup=True)
 
         while not self._stop_event.is_set():
             self._stop_event.wait(600) # Wait for 10 minutes or until stopped
@@ -46,20 +47,24 @@ class StateManager:
                 self.refresh_all_provider_states()
         self.app.logger.info("Background refresh loop stopped.")
 
-    def refresh_all_provider_states(self, force=False):
+    def refresh_all_provider_states(self, is_startup=False):
         self.logger.info("Executing periodic state refresh for all providers.")
         for name, provider in self.providers.items():
             if provider.is_configured():
                 self.logger.info(f"Refreshing state for provider: {name}")
                 provider.refresh_status()
         
-        # After refreshing, update UI elements that depend on this state
-        if hasattr(self.app, 'main_window') and self.app.main_window.model_manager_window:
-            self.app.main_window.model_manager_window.update_provider_tabs()
-        
-        # Update main window status light
+        # --- START OF FIX ---
+        # Schedule UI updates to run on the main thread after state has been refreshed.
         if hasattr(self.app, 'main_window'):
-            self.app.main_window.update_status_indicator()
+            # Update Model Manager window if it's open
+            if self.app.main_window.model_manager_window and self.app.main_window.model_manager_window.winfo_exists():
+                self.app.root.after(0, self.app.main_window.model_manager_window.update_provider_tabs)
+            
+            # ALWAYS update the right sidebar and status indicator
+            self.app.root.after(0, self.app.main_window.right_sidebar.handle_state_update, is_startup)
+            self.app.root.after(0, self.app.main_window.update_status_indicator)
+        # --- END OF FIX ---
 
 
     def get_google_keys(self):
@@ -90,3 +95,5 @@ class StateManager:
         
         self.logger.warning("No available Google keys found after checking all options.")
         return None
+
+# --- END OF CORRECTED state_manager.py ---
