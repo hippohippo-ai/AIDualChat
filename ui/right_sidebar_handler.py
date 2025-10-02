@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import threading
+import re # --- BUG #3: Import regex library ---
 from tkinter import messagebox
 from services.providers.base_provider import ProviderError
 from config.models import AIConfig
@@ -58,12 +59,48 @@ class RightSidebarHandler:
         self._create_model_settings_panel(scrollable_frame, 1)
         self._create_model_settings_panel(scrollable_frame, 2)
         
-        # --- FIXED: Re-added Auto-Reply Delay setting ---
         self._create_global_settings_panel(scrollable_frame)
 
         self.content_frame.pack(fill="both", expand=True)
         return self.sidebar_frame
 
+    # --- BUG #3: Validation function for the delay entry ---
+    def _validate_delay_input(self, P):
+        """Validates that the input is a float with at most one decimal place."""
+        # Allow empty string for deletion
+        if P == "":
+            return True
+        # Regex to match a number with at most one decimal place
+        if re.fullmatch(r"^\d*\.?\d?$", P):
+            return True
+        return False
+
+    def _create_global_settings_panel(self, parent):
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.pack(fill="x", padx=15, pady=(20, 5))
+        frame.grid_columnconfigure(1, weight=1)
+
+        header_label = ctk.CTkLabel(frame, text="", font=self.app.FONT_BOLD)
+        header_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        self.lang_updatable_widgets.append((header_label, 'global_settings'))
+
+        delay_label = ctk.CTkLabel(frame, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED)
+        delay_label.grid(row=1, column=0, sticky="w")
+        self.lang_updatable_widgets.append((delay_label, 'auto_reply_delay'))
+        
+        # --- BUG #3: Register the validation command and apply it to the entry ---
+        vcmd = (self.app.root.register(self._validate_delay_input), '%P')
+        delay_entry = ctk.CTkEntry(
+            frame, 
+            textvariable=self.app.delay_var, 
+            width=50, 
+            font=self.app.FONT_GENERAL,
+            validate="key", 
+            validatecommand=vcmd
+        )
+        delay_entry.grid(row=1, column=1, sticky="w", padx=10)
+
+    # ... (Rest of the file is identical to the previous correct version) ...
     def _create_configuration_selector_panel(self, parent):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="x", padx=15, pady=0)
@@ -88,12 +125,11 @@ class RightSidebarHandler:
         save_btn.grid(row=4, column=0, columnspan=2, sticky="ew")
         self.lang_updatable_widgets.append((save_btn, 'save_active_config'))
         
-    # --- FIXED: Reworked to use a collapsible frame ---
     def _create_model_settings_panel(self, parent, chat_id):
         collapsible_frame, header_label = self._create_collapsible_frame(parent, 'ai_settings', chat_id)
         self.header_labels[chat_id] = header_label
         
-        content_frame = collapsible_frame # The content frame is the one returned
+        content_frame = collapsible_frame
 
         presets = [p.name for p in self.app.config_model.presets]
         self.preset_selectors[chat_id] = self._create_dropdown(content_frame, 'preset', self.preset_vars[chat_id], presets, lambda choice, c=chat_id: self.on_preset_select(c, choice))
@@ -106,7 +142,7 @@ class RightSidebarHandler:
 
         self.model_selectors[chat_id] = self._create_dropdown(selectors_frame, 'model', self.model_vars[chat_id], [], lambda choice, c=chat_id: self.on_model_select(c, choice))
         
-        self.key_selectors[chat_id] = self._create_dropdown(selectors_frame, 'key', self.key_vars[chat_id], [], lambda choice, c=chat_id: self.on_key_select(c, choice))
+        self.key_selectors[chat_id] = self._create_dropdown(selectors_frame, 'api_key', self.key_vars[chat_id], [], lambda choice, c=chat_id: self.on_key_select(c, choice))
         
         self.persona_prompts[chat_id] = self._create_textbox(content_frame, 'persona', 120)
         self.context_prompts[chat_id] = self._create_textbox(content_frame, 'context', 80)
@@ -122,22 +158,6 @@ class RightSidebarHandler:
         web_search_cb.pack(anchor='w', padx=15, pady=5)
         self.lang_updatable_widgets.append((web_search_cb, 'web_search_enabled'))
 
-    # --- NEW: Function to create global settings like auto-reply delay ---
-    def _create_global_settings_panel(self, parent):
-        frame = ctk.CTkFrame(parent, fg_color="transparent")
-        frame.pack(fill="x", padx=15, pady=(20, 5))
-        frame.grid_columnconfigure(1, weight=1)
-
-        header_label = ctk.CTkLabel(frame, text=self.lang.get('global_settings'), font=self.app.FONT_BOLD)
-        header_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
-
-        delay_label = ctk.CTkLabel(frame, text=self.lang.get('auto_reply_delay'), font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED)
-        delay_label.grid(row=1, column=0, sticky="w")
-        
-        delay_entry = ctk.CTkEntry(frame, textvariable=self.app.delay_var, width=50, font=self.app.FONT_GENERAL)
-        delay_entry.grid(row=1, column=1, sticky="w", padx=10)
-
-    # --- NEW: Helper for creating collapsible frames ---
     def _create_collapsible_frame(self, parent, text_key, *args):
         container = ctk.CTkFrame(parent, fg_color="transparent")
         container.pack(fill="x", padx=5, pady=2)
@@ -396,9 +416,12 @@ class RightSidebarHandler:
             except (ValueError, IndexError):
                 pass
         
+        provider_val = self.provider_vars[chat_id].get()
+        model_val = self.model_vars[chat_id].get()
+        
         return AIConfig(
-            provider=self.provider_vars[chat_id].get() if not self.provider_vars[chat_id].get().startswith('---') else None,
-            model=self.model_vars[chat_id].get() if not self.model_vars[chat_id].get().startswith('---') else None,
+            provider=provider_val if not provider_val.startswith('---') else None,
+            model=model_val if not model_val.startswith('---') else None,
             key_id=key_id,
             persona_prompt=self.persona_prompts[chat_id].get("1.0", "end-1c").strip(),
             context_prompt=self.context_prompts[chat_id].get("1.0", "end-1c").strip(),
@@ -470,7 +493,7 @@ class RightSidebarHandler:
                     return
                 else:
                     self.app.logger.error("Failover failed: No other available Google keys.")
-                    self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"Failover failed. All Google Keys are unavailable. Original error: {e}"})
+                    self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': self.lang.get('failover_failed_no_keys') + f" Original error: {e}"})
             else:
                  self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': str(e)})
             self.app.root.after(0, pane.restore_ui_after_response)

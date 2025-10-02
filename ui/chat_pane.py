@@ -15,14 +15,19 @@ class ChatPane:
         self.total_tokens = 0
         self.current_generation_id = 0
         self.current_model_display_name = ""
-        self._model_response_accumulator = ""
-        self.uploaded_files = {}
+        
+        self._history_html_cache = ""
+        self._current_streaming_message_obj = None
 
         self.token_info_var = ctk.StringVar(value="Tokens: 0 | 0")
         self.auto_reply_var = ctk.BooleanVar(value=False)
         self.countdown_var = ctk.StringVar(value="")
 
-        self.file_listbox = None
+        # --- BUG #2: Variable to hold the scheduled task ID ---
+        self.scheduled_task_id = None
+
+        self.uploaded_files = {}
+
         self.model_display_label = None
         self.send_button = None
         self.stop_button = None
@@ -30,6 +35,7 @@ class ChatPane:
         self.auto_reply_checkbox = None
         self.status_label = None
         self.progress_bar = None
+        self.chat_display = None
 
         self._create_widgets()
 
@@ -43,7 +49,8 @@ class ChatPane:
         display_container.grid_columnconfigure(0, weight=1)
         display_container.grid_rowconfigure(0, weight=1)
 
-        self.model_display_label = ctk.CTkLabel(display_container, text="", font=self.app.FONT_SMALL, fg_color=("#000000", "#2B2B2B"), text_color=self.app.COLOR_TEXT_MUTED, corner_radius=5)
+        semi_transparent_color = "#333333" 
+        self.model_display_label = ctk.CTkLabel(display_container, text="", font=self.app.FONT_SMALL, fg_color=semi_transparent_color, text_color=self.app.COLOR_TEXT_MUTED, corner_radius=5)
         self.model_display_label.place(relx=0.5, y=20, anchor="center")
         self.model_display_label.lift()
 
@@ -76,11 +83,12 @@ class ChatPane:
 
         self.auto_reply_checkbox = ctk.CTkCheckBox(controls_frame, text="", variable=self.auto_reply_var)
         self.auto_reply_checkbox.pack(anchor="w")
+        # --- BUG #2: Trace the checkbox to cancel the timer if unchecked ---
+        self.auto_reply_var.trace_add("write", self._on_auto_reply_toggle)
 
         ctk.CTkLabel(controls_frame, textvariable=self.countdown_var, font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor="w", pady=(5,0))
         ctk.CTkLabel(controls_frame, textvariable=self.token_info_var, font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED).pack(anchor="w", pady=(10,0))
         
-        # --- FIXED: Use a dedicated frame that can be hidden without affecting layout ---
         self.bottom_bar_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
         self.bottom_bar_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 5), sticky="ew")
         self.bottom_bar_frame.grid_columnconfigure(0, weight=1)
@@ -91,15 +99,12 @@ class ChatPane:
         self.status_label = ctk.CTkLabel(self.bottom_bar_frame, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED)
         self.status_label.grid(row=0, column=0, padx=5, sticky="w")
         
-        self.bottom_bar_frame.grid_remove() # Hide the whole frame
+        self.bottom_bar_frame.grid_remove()
 
     def update_text(self):
-        if self.send_button and self.send_button.winfo_exists():
-            self.send_button.configure(text=self.lang.get('send'))
-        if self.stop_button and self.stop_button.winfo_exists():
-            self.stop_button.configure(text=self.lang.get('stop'))
-        if self.regenerate_button and self.regenerate_button.winfo_exists():
-            self.regenerate_button.configure(text=self.lang.get('regen'))
+        if self.send_button and self.send_button.winfo_exists(): self.send_button.configure(text=self.lang.get('send'))
+        if self.stop_button and self.stop_button.winfo_exists(): self.stop_button.configure(text=self.lang.get('stop'))
+        if self.regenerate_button and self.regenerate_button.winfo_exists(): self.regenerate_button.configure(text=self.lang.get('regen'))
         if self.auto_reply_checkbox and self.auto_reply_checkbox.winfo_exists():
             other_id = 2 if self.chat_id == 1 else 1
             self.auto_reply_checkbox.configure(text=self.lang.get('auto_reply_to').format(other_id))
@@ -109,7 +114,7 @@ class ChatPane:
         self.send_button.configure(state='disabled')
         self.regenerate_button.configure(state='disabled')
         self.stop_button.configure(state='normal')
-        self.bottom_bar_frame.grid() # Show the frame
+        self.bottom_bar_frame.grid()
         self.progress_bar.start()
 
     def restore_ui_after_response(self):
@@ -118,7 +123,7 @@ class ChatPane:
         self.regenerate_button.configure(state='normal')
         self.stop_button.configure(state='disabled')
         self.progress_bar.stop()
-        self.bottom_bar_frame.grid_remove() # Hide the frame
+        self.bottom_bar_frame.grid_remove()
         self.status_label.configure(text="")
         self.user_input.focus_set()
 
@@ -129,28 +134,40 @@ class ChatPane:
         self.current_model_display_name = text
         self.model_display_label.configure(text=f"  {text}  ")
 
+    def _cache_history_html(self):
+        self.reset_html_accumulator()
+        self._history_html_cache = "".join([self.app.chat_core.generate_message_html(self.chat_id, msg) for msg in self.render_history])
+
     def reset_model_response_stream(self):
-        self._model_response_accumulator = ""
-        new_message = {'role': 'model', 'parts': [{'text': ""}]}
-        self.render_history.append(new_message)
-        self.render_full_history(scroll_to_bottom=True)
+        self._cache_history_html()
+        self._current_streaming_message_obj = {
+            'role': 'model', 
+            'parts': [{'text': ""}],
+            'model_name': self.current_model_display_name
+        }
+        streaming_html = self.app.chat_core.generate_message_html(self.chat_id, self._current_streaming_message_obj)
+        self.chat_display.set_html(self.html_body_content + self._history_html_cache + streaming_html + "</body></html>")
 
     def append_model_response_stream(self, text_chunk):
-        self._model_response_accumulator += text_chunk
-        if self.render_history and self.render_history[-1]['role'] == 'model':
-            self.render_history[-1]['parts'][0]['text'] = self._model_response_accumulator
-            self.render_full_history(scroll_to_bottom=True)
-    
+        if self._current_streaming_message_obj is None: return
+        self._current_streaming_message_obj['parts'][0]['text'] += text_chunk
+        streaming_html = self.app.chat_core.generate_message_html(self.chat_id, self._current_streaming_message_obj)
+        self.chat_display.set_html(self.html_body_content + self._history_html_cache + streaming_html + "</body></html>")
+        self.app.root.after(10, lambda: self.chat_display.yview_moveto(1.0))
+
     def finalize_model_response_stream(self):
+        if self._current_streaming_message_obj:
+            if not self.render_history or self.render_history[-1] is not self._current_streaming_message_obj:
+                 self.render_history.append(self._current_streaming_message_obj)
+            self._current_streaming_message_obj = None
+            self._history_html_cache = ""
         self.restore_ui_after_response()
-        self.render_full_history()
+        self.render_full_history(scroll_to_bottom=True)
 
     def render_full_history(self, scroll_to_bottom=False):
         self.reset_html_accumulator()
-        for message in self.render_history:
-            html_segment = self.app.chat_core.generate_message_html(self.chat_id, message)
-            self.html_body_content += html_segment
-        self.chat_display.set_html(self.html_body_content + "</body></html>")
+        html_content = "".join([self.app.chat_core.generate_message_html(self.chat_id, msg) for msg in self.render_history])
+        self.chat_display.set_html(self.html_body_content + html_content + "</body></html>")
         if scroll_to_bottom:
             self.app.root.after(50, lambda: self.chat_display.yview_moveto(1.0))
 
@@ -163,6 +180,8 @@ class ChatPane:
         self.html_body_content = f"<!DOCTYPE html><html><body style='{body_style}'>"
         
     def clear_session(self):
+        # --- BUG #2: Cancel any pending tasks before clearing ---
+        self.cancel_scheduled_task()
         self.render_history.clear()
         self.total_tokens = 0
         self.token_info_var.set("Tokens: 0 | 0")
@@ -173,4 +192,22 @@ class ChatPane:
             raw_display.delete('1.0', tk.END)
         
     def get_ready_files(self):
-        return [data['result'] for data in self.uploaded_files.values() if data['status'] == 'done']
+        return []
+
+    # --- BUGS #1 & #2: New methods for task management ---
+    def set_scheduled_task_id(self, job_id):
+        """Stores the ID of a scheduled 'after' job."""
+        self.scheduled_task_id = job_id
+
+    def cancel_scheduled_task(self):
+        """Cancels a pending auto-reply task if it exists."""
+        if self.scheduled_task_id:
+            self.app.root.after_cancel(self.scheduled_task_id)
+            self.set_scheduled_task_id(None)
+            self.countdown_var.set("")
+            self.app.logger.info(f"Cancelled scheduled task for AI {self.chat_id}")
+
+    def _on_auto_reply_toggle(self, *args):
+        """Callback for when the auto-reply checkbox is toggled."""
+        if not self.auto_reply_var.get():
+            self.cancel_scheduled_task()

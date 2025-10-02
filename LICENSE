@@ -24,10 +24,22 @@ SOFTWARE.
 
 ## Third-Party Software Notices
 
+This project incorporates software from the following third-party libraries:
+
+**Libraries licensed under the MIT License**
+
+- **ddgs (Python Library)**
+- **linkify-it-py (Python Library)**
+
+**Libraries licensed under the Apache License, Version 2.0**
+
 This project incorporates software developed by Google LLC and others, which is licensed under the Apache License, Version 2.0.
 
-**google-generativeai (Python Library)**
-Copyright 2023 Google LLC
+- **google-generativeai (Python Library)**
+  Copyright 2023 Google LLC
+
+- **tenacity (Python Library)**
+  Copyright 2016 Julien Danjou
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

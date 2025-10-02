@@ -4,6 +4,7 @@ from google.generativeai.protos import FunctionResponse, Part
 from google.api_core import exceptions as api_core_exceptions
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import threading
+from ddgs import DDGS
 
 from .base_provider import BaseProvider, ProviderError
 
@@ -19,6 +20,41 @@ class GoogleProvider(BaseProvider):
         super().__init__(app_instance, state_manager)
         self.key_statuses = {}
         self.lock = threading.Lock()
+        self.web_search_tool = Tool(
+            function_declarations=[
+                FunctionDeclaration(
+                    name='web_search',
+                    description='Performs a web search to find up-to-date information on a given topic.',
+                    parameters={
+                        'type': 'object',
+                        'properties': {
+                            'query': {
+                                'type': 'string',
+                                'description': 'The search query to find information about.'
+                            }
+                        },
+                        'required': ['query']
+                    }
+                )
+            ]
+        )
+
+    def _perform_web_search(self, query: str) -> dict:
+        self.logger.info("Performing web search", query=query)
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=5))
+            if not results:
+                return {"results": "No results found."}
+            
+            formatted_results = []
+            for i, res in enumerate(results, 1):
+                formatted_results.append(f"Source [{i}]: {res['title']}\nSnippet: {res['body']}\nURL: {res['href']}\n---")
+            
+            return {"results": "\n".join(formatted_results)}
+        except Exception as e:
+            self.logger.error("Web search failed", error=str(e))
+            return {"results": f"An error occurred during web search: {e}"}
 
     def get_name(self):
         return "Google"
@@ -37,6 +73,23 @@ class GoogleProvider(BaseProvider):
                     return status["models"]
         return []
 
+    # --- NEW: Overriding the base method to clean history for Google API ---
+    def get_history_for_api(self, render_history):
+        """
+        Cleans the history for the Google API by removing custom fields 
+        and filtering out UI-only messages.
+        """
+        cleaned_history = []
+        for msg in render_history:
+            if not msg.get('is_ui_only', False):
+                # Create a copy with only the fields Google's API understands
+                api_msg = {
+                    'role': msg['role'],
+                    'parts': msg['parts']
+                }
+                cleaned_history.append(api_msg)
+        return cleaned_history
+
     def refresh_status(self):
         keys = self.state_manager.get_google_keys()
         for key in keys:
@@ -46,19 +99,13 @@ class GoogleProvider(BaseProvider):
                 models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                 with self.lock:
                     self.key_statuses[key.id] = {
-                        "is_valid": True,
-                        "quota": "OK",
-                        "reset_time": "N/A",
-                        "models": sorted(models)
+                        "is_valid": True, "quota": "OK", "reset_time": "N/A", "models": sorted(models)
                     }
                 self.logger.info("Google Key is valid.", key_id=key.id)
             except Exception as e:
                 with self.lock:
                     self.key_statuses[key.id] = {
-                        "is_valid": False,
-                        "quota": "Error",
-                        "reset_time": "N/A",
-                        "models": []
+                        "is_valid": False, "quota": "Error", "reset_time": "N/A", "models": []
                     }
                 self.logger.warning("Google Key is invalid or failed to refresh.", key_id=key.id, error=str(e))
 
@@ -67,9 +114,9 @@ class GoogleProvider(BaseProvider):
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS)
     )
-    def _send_message_with_retry(self, session, content, logger):
+    def _send_message_with_retry(self, session, content, logger, tools=None):
         logger.info("Attempting to send message to Google API...")
-        return session.send_message(content, stream=True)
+        return session.send_message(content, stream=True, tools=tools)
 
     def send_message(self, chat_id, model_config, message, trace_id):
         pane = self.app.chat_panes[chat_id]
@@ -84,9 +131,15 @@ class GoogleProvider(BaseProvider):
             genai.configure(api_key=key.api_key)
 
             persona_prompt = self.app.main_window.right_sidebar.persona_prompts[chat_id].get("1.0", "end-1c").strip()
+            web_search_enabled = self.app.main_window.right_sidebar.web_search_vars[chat_id].get()
+            tools = [self.web_search_tool] if web_search_enabled else None
             
             model = genai.GenerativeModel(model_config['model'], system_instruction=persona_prompt)
+            
+            # --- THIS IS THE FIX ---
+            # Use the overridden get_history_for_api method to get a clean history
             history = self.get_history_for_api(pane.render_history)
+            
             session = model.start_chat(history=history)
 
             content_to_send = []
@@ -99,8 +152,8 @@ class GoogleProvider(BaseProvider):
                 return
 
             yield {'type': 'stream_start'}
-
-            response = self._send_message_with_retry(session, content_to_send, logger)
+            
+            response = self._send_message_with_retry(session, content_to_send, logger, tools=tools)
             
             full_text_accumulator = ""
             for chunk in response:
@@ -109,9 +162,32 @@ class GoogleProvider(BaseProvider):
                     response.resolve()
                     return
 
-                if chunk.text:
-                    full_text_accumulator += chunk.text
-                    yield {'type': 'stream_chunk', 'text': chunk.text}
+                if chunk.parts:
+                    for part in chunk.parts:
+                        if part.function_call:
+                            fc = part.function_call
+                            if fc.name == 'web_search':
+                                query = fc.args.get('query', 'No query specified')
+                                yield {'type': 'status_update', 'text': self.app.lang.get('searching_web').format(query)}
+                                
+                                search_results = self._perform_web_search(query=query)
+                                
+                                yield {'type': 'status_update', 'text': self.app.lang.get('search_results_info')}
+                                
+                                # Send results back to the model
+                                response_for_tool = self._send_message_with_retry(
+                                    session,
+                                    Part(function_response=FunctionResponse(name='web_search', response=search_results)),
+                                    logger
+                                )
+                                for final_chunk in response_for_tool:
+                                     if final_chunk.text:
+                                        full_text_accumulator += final_chunk.text
+                                        yield {'type': 'stream_chunk', 'text': final_chunk.text}
+                                break 
+                        elif part.text:
+                            full_text_accumulator += part.text
+                            yield {'type': 'stream_chunk', 'text': part.text}
 
             usage_meta = response.usage_metadata if response else None
             usage_dict = {'prompt_token_count': usage_meta.prompt_token_count, 'candidates_token_count': usage_meta.candidates_token_count} if usage_meta else None

@@ -4,9 +4,12 @@ customtkinter
 # AI Service Libraries
 google-generativeai
 requests
+ddgs
+tenacity
 
 # Utilities
 markdown-it-py
+linkify-it-py
 tkhtmlview
 structlog
 keyring
