@@ -1,8 +1,18 @@
+# UI Framework
 customtkinter
+
+# AI Service Libraries
 google-generativeai
+requests
+
+# Utilities
 markdown-it-py
 tkhtmlview
-ddgs
 structlog
 keyring
 keyrings.alt
+pydantic
+
+# Testing Framework
+pytest
+pytest-mock

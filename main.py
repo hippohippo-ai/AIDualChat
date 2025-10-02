@@ -1,29 +1,26 @@
-# --- START OF UPDATED main.py ---
-
 import customtkinter as ctk
 from tkinter import messagebox
-import google.generativeai as genai
 import os
 from datetime import datetime
 import queue
 import structlog
-from logging_config import setup_logging
-from config_manager import ConfigManager
-from gemini_api import GeminiAPI
-from ui_elements import UIElements
-from chat_core import ChatCore
-from chat_pane import ChatPane
-from language import LanguageManager # NEW
 
-class GeminiChatApp:
+from utils.logging_config import setup_logging
+from utils.language import LanguageManager
+from config.config_manager import ConfigManager
+from services.state_manager import StateManager
+from core.chat_core import ChatCore
+from ui.main_window import MainWindow
+
+class AIDualChatApp:
     def __init__(self, root):
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
 
         self.root = root
-        self.root.title("Gemini Dual Chat")
+        self.root.title("AI Dual Chat")
         self.root.geometry("1600x900")
-        self.root.minsize(1000, 800)
+        self.root.minsize(1200, 800)
 
         # --- UI Styling ---
         self.COLOR_BACKGROUND = "#1E1F22"
@@ -40,101 +37,82 @@ class GeminiChatApp:
         self.FONT_CHAT = ctk.CTkFont(family="Consolas", size=12)
         root.configure(fg_color=self.COLOR_BACKGROUND)
 
-        self.LEFT_SIDEBAR_WIDTH_FULL = 240  # 新建一个变量给左边用
-        self.RIGHT_SIDEBAR_WIDTH_FULL = 280        # 保留这个给右边用
+        self.LEFT_SIDEBAR_WIDTH_FULL = 240
+        self.RIGHT_SIDEBAR_WIDTH_FULL = 300
         self.SIDEBAR_WIDTH_COLLAPSED = 40
 
-        # --- State Management ---
-        self.chat_sessions = {}
+        # --- Core Components ---
+        self.logger = structlog.get_logger()
+        self.lang = LanguageManager()
         self.response_queue = queue.Queue()
         self.session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # --- UI Element Dictionaries ---
-        self.chat_panes = {}
-        self.model_selectors = {}
-        self.options_prompts = {}
-        self.context_prompts = {}
-        self.temp_vars = {1: ctk.DoubleVar(), 2: ctk.DoubleVar()}
-        self.web_search_vars = {1: ctk.BooleanVar(), 2: ctk.BooleanVar()} # NEW
-        self.temp_labels = {}
-        self.raw_log_displays = {}
-        self.available_models = []
-        self.config_description_entry = None
-        
-        self.font_size_vars = {} # To hold spinbox variables
-        self.color_vars = {} # To hold color variables
-        
-        self.chat_font_size_var = ctk.IntVar(value=8)
-        self.speaker_font_size_var = ctk.IntVar(value=12)
-        self.user_name_color_var = ctk.StringVar(value="#A9DFBF")
-        self.user_message_color_var = ctk.StringVar(value="#FFFFFF")
-        self.gemini_name_color_var = ctk.StringVar(value="#A9CCE3")
-        self.gemini_message_color_var = ctk.StringVar(value="#FFFFFF")
-
-        # --- Module Initialization ---
-        self.logger = structlog.get_logger()
-        self.lang = LanguageManager() # NEW: Initialize language manager
-        
+        # --- State and Service Initialization ---
         self.config_manager = ConfigManager(self)
-        self.config_manager.load_config() # This will set the language from config
-        
-        self.delay_var = ctk.StringVar(value=str(self.config.get("auto_reply_delay_minutes", 1.0)))
-        
-        self.gemini_api = GeminiAPI(self, self.logger)
-        self.api_key = self.config.get("api_key")
-        genai.configure(api_key=self.api_key)
+        self.config_model = self.config_manager.load_config()
+        self.lang.set_language(self.config_model.language)
+
+        self.state_manager = StateManager(self, self.config_model)
+        self.state_manager.start_background_refresh()
 
         self.chat_core = ChatCore(self)
-        
-        ui_callbacks = {
-            'on_new_session': self.chat_core.new_session,
-            'on_save_session': self.chat_core.save_session,
-            'on_load_session': self.chat_core.load_session,
-            'on_export_conversation': self.chat_core.export_conversation,
-            'on_smart_export': self.chat_core.smart_export,
-            'on_restore_display_defaults': self.config_manager._restore_display_settings,
-            'on_config_select': self.config_manager._on_config_select,
-            'on_save_current_config': self.config_manager._save_current_config,
+
+        # --- UI Variables ---
+        self.delay_var = ctk.StringVar(value=str(self.config_model.auto_reply_delay_minutes))
+        self.chat_font_size_var = ctk.IntVar(value=self.config_model.display_settings.chat_font_size)
+        self.speaker_font_size_var = ctk.IntVar(value=self.config_model.display_settings.speaker_font_size)
+        self.user_name_color_var = ctk.StringVar(value=self.config_model.display_settings.user_name_color)
+        self.user_message_color_var = ctk.StringVar(value=self.config_model.display_settings.user_message_color)
+        self.ai_name_color_var = ctk.StringVar(value=self.config_model.display_settings.ai_name_color)
+        self.ai_message_color_var = ctk.StringVar(value=self.config_model.display_settings.ai_message_color)
+
+        # --- UI Element Dictionaries ---
+        self.chat_panes = {}
+        self.raw_log_displays = {}
+        # Right sidebar widgets are dynamically created and managed in MainWindow and its delegates
+        self.active_ai_config = {
+            1: {"provider": None, "model": None, "key_id": None, "preset_id": None},
+            2: {"provider": None, "model": None, "key_id": None, "preset_id": None}
         }
-        self.ui_elements = UIElements(self, ui_callbacks)
-        self.ui_elements.create_widgets()
 
-        active_config = self.config_manager.config['configurations'][self.config_manager.config.get('active_config_index', 0)]
-        self.config_manager._apply_config_to_ui(active_config, startup=True)
+        # --- Build UI ---
+        self.main_window = MainWindow(self)
+        self.main_window.create_widgets()
 
-        try:
-            self.available_models = self.gemini_api.fetch_available_models()
-            self.gemini_api._update_model_dropdowns()
-        except Exception as e:
-            self.available_models = []
-            self.logger.error("API Connection Error", error=str(e), exc_info=True)
-            messagebox.showwarning("API Connection Error", 
-                                 f"Could not connect to Google AI. Please provide a valid key.\nError: {e}")
-            self.gemini_api.prompt_for_api_key()
+        # --- Final Setup ---
+        self.main_window.apply_config_to_ui(self.config_model.get_active_configuration(), startup=True)
+        self._on_display_setting_change() # Initial render
 
-        if self.available_models:
-            for chat_id in [1, 2]: self.gemini_api.prime_chat_session(chat_id)
-            
-        self._on_display_setting_change_and_save()
-
+        # Bind events
         self.chat_font_size_var.trace_add("write", self._on_display_setting_change_and_save)
         self.speaker_font_size_var.trace_add("write", self._on_display_setting_change_and_save)
         self.user_name_color_var.trace_add("write", self._on_display_setting_change_and_save)
         self.user_message_color_var.trace_add("write", self._on_display_setting_change_and_save)
-        self.gemini_name_color_var.trace_add("write", self._on_display_setting_change_and_save)
-        self.gemini_message_color_var.trace_add("write", self._on_display_setting_change_and_save)
+        self.ai_name_color_var.trace_add("write", self._on_display_setting_change_and_save)
+        self.ai_message_color_var.trace_add("write", self._on_display_setting_change_and_save)
 
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.chat_core.process_queue()
 
-    def _on_display_setting_change_and_save(self, *args):
+    def _on_display_setting_change(self, *args):
         if hasattr(self, 'chat_core') and self.chat_core is not None:
             self.chat_core.rerender_all_panes()
-            self.config_manager._save_display_settings()
-    
+
+    def _on_display_setting_change_and_save(self, *args):
+        self._on_display_setting_change()
+        self.config_manager.save_display_settings()
+
+    def on_closing(self):
+        self.logger.info("Application closing. Stopping background tasks.")
+        self.state_manager.stop_background_refresh()
+        # Potentially save active config here if desired
+        # self.config_manager.save_current_config()
+        self.root.destroy()
+
 if __name__ == "__main__":
     setup_logging()
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
     root = ctk.CTk()
-    app = GeminiChatApp(root)
+    app = AIDualChatApp(root)
     root.mainloop()
-
-# --- END OF UPDATED main.py ---
