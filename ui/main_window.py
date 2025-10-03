@@ -22,6 +22,7 @@ from tkinter import filedialog, colorchooser
 from .chat_pane import ChatPane
 from .model_manager_window import ModelManagerWindow
 from .right_sidebar_handler import RightSidebarHandler
+from .log_viewer_window import LogViewerWindow
 from config.models import DisplaySettings
 
 class Tooltip:
@@ -70,6 +71,7 @@ class MainWindow:
         self.left_toggle_button = None
         
         self.model_manager_window = None
+        self.log_viewer_window = None
         self.right_sidebar = RightSidebarHandler(app_instance, self)
 
     def create_widgets(self):
@@ -111,6 +113,7 @@ class MainWindow:
 
         self._create_session_management_panel(self.left_sidebar.content_frame)
         self._create_display_panel(self.left_sidebar.content_frame)
+        self._create_log_panel(self.left_sidebar.content_frame)
 
         footer_frame = ctk.CTkFrame(self.left_sidebar, fg_color="transparent")
         footer_frame.grid(row=2, column=0, sticky="ew", pady=10)
@@ -291,6 +294,21 @@ class MainWindow:
         
         self.app.config_manager.save_display_settings()
         messagebox.showinfo(self.lang.get('success'), self.lang.get('defaults_restored'))
+
+    def _create_log_panel(self, parent):
+        frame, header_label = self._create_collapsible_frame(parent, "logs")
+        self.lang_updatable_widgets.append((header_label, 'logs'))
+
+        show_log_btn = ctk.CTkButton(frame, text="", command=self.open_log_viewer)
+        show_log_btn.pack(fill="x", padx=15, pady=(10, 0))
+        self.lang_updatable_widgets.append((show_log_btn, 'show_logs'))
+
+    def open_log_viewer(self):
+        if self.log_viewer_window is None or not self.log_viewer_window.winfo_exists():
+            self.log_viewer_window = LogViewerWindow(self.root, self.app)
+            self.log_viewer_window.grab_set()
+        else:
+            self.log_viewer_window.focus()
 
     def on_lang_change(self, lang):
         self.app.lang.set_language(lang)

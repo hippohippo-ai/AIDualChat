@@ -127,8 +127,6 @@ class AIDualChatApp:
 
 if __name__ == "__main__":
     setup_logging()
-    if not os.path.exists("logs"):
-        os.makedirs("logs")
     root = ctk.CTk()
     app = AIDualChatApp(root)
     root.mainloop()

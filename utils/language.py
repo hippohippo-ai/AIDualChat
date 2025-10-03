@@ -20,6 +20,11 @@ class LanguageManager:
             'en': {
                 # General
                 'error': 'Error', 'success': 'Success', 'info': 'Info', 'status': 'Status', 'confirm': 'Confirm',
+                # Log Viewer
+                'logs':'Logs',
+                'log_viewer_title': 'Application Logs', 'log_files_label': 'Log Files:', 'log_content_label': 'Log Content:',
+                'no_logs_found': 'No log files found.', 'show_logs': 'Show Logs',
+                'log_col_time': 'Time', 'log_col_name': 'Name', 'log_col_level': 'Level', 'log_col_message': 'Message',
                 # Main Window
                 'studio': 'AI STUDIO', 'session_management': 'Session Management', 'display': 'Display',
                 'new_session': 'New Session', 'save_ai_1': 'Save AI 1', 'save_ai_2': 'Save AI 2',
@@ -83,6 +88,11 @@ class LanguageManager:
             },
             'zh': {
                 'error': '错误', 'success': '成功', 'info': '信息', 'status': '状态', 'confirm': '确认',
+                # Log Viewer
+                'logs':'日志',
+                'log_viewer_title': '应用程序日志', 'log_files_label': '日志文件:', 'log_content_label': '日志内容:',
+                'no_logs_found': '未找到日志文件。', 'show_logs': '显示日志',
+                'log_col_time': '时间', 'log_col_name': '名称', 'log_col_level': '级别', 'log_col_message': '消息',
                 'studio': 'AI 工作室', 'session_management': '会话管理', 'display': '显示设置',
                 'new_session': '新会话', 'save_ai_1': '保存 AI 1', 'save_ai_2': '保存 AI 2',
                 'load_ai_1': '加载 AI 1', 'load_ai_2': '加载 AI 2', 'language': '语言:',
