@@ -82,7 +82,7 @@ Feel free to fork the repository, make improvements, and submit pull requests.
 
 ## License
 
-This project is licensed under the MIT License - see the `LICENSE` file for details.
+As of 2025-10-03, this project is licensed under the GNU General Public License v3.0. See the `LICENSE` file for details.
 
 ---
 
@@ -170,4 +170,4 @@ This project is licensed under the MIT License - see the `LICENSE` file for deta
 
 ## 许可证
 
-该项目根据 MIT 许可证获得许可 - 有关详细信息，请参阅 `LICENSE` 文件。
+自 2025-10-03 起，该项目根据 GNU通用公共许可证v3.0 获得许可 - 有关详细信息，请参阅 `LICENSE` 文件。

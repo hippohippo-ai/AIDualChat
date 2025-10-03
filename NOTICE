@@ -1,0 +1,96 @@
+==========================================================================
+                             NOTICE FILE
+==========================================================================
+
+Project: AIDualChat
+Copyright (C) 2025 Hippohippo-AI
+
+This project is licensed under the GNU General Public License version 3 (GPLv3).
+For full license text, see the LICENSE file in the root directory.
+
+This product includes software developed by third parties. Below is the list
+of such software along with their licenses and copyright notices.
+
+--------------------------------------------------------------------------
+
+1. customtkinter  
+   License: MIT License  
+   Copyright (c) 2021-2023 Tom Schimansky  
+   Repository: https://github.com/TomSchimansky/customtkinter
+
+2. google-generativeai  
+   License: Apache License 2.0  
+   Copyright 2023 Google LLC  
+   Repository: https://github.com/googleapis/python-genai
+
+3. requests  
+   License: Apache License 2.0  
+   Copyright 2023 Kenneth Reitz and contributors  
+   Repository: https://github.com/psf/requests
+
+4. ddgs  
+   License: MIT License  
+   Copyright (c) 2016-2023 Deedy  
+   Repository: https://github.com/deedy5/ddgs
+
+5. tenacity  
+   License: Apache License 2.0  
+   Copyright (c) 2014-2023 Julien Danjou  
+   Repository: https://github.com/jd/tenacity
+
+6. markdown-it-py  
+   License: MIT License  
+   Copyright (c) 2018-2023 Executable Books  
+   Repository: https://github.com/executablebooks/markdown-it-py
+
+7. linkify-it-py  
+   License: MIT License  
+   Copyright (c) 2021 Missive  
+   Repository: https://github.com/markdown-it/linkify-it
+
+8. tkhtmlview  
+   License: MIT License  
+   Copyright (c) 2016-2023 Andereoo  
+   Repository: https://github.com/bauripalash/tkhtmlview/
+
+9. structlog  
+   License: Apache License 2.0 and MIT License (dual-licensed)  
+   Copyright (c) 2015-2023 Hynek Schlawack  
+   Repository: https://github.com/hynek/structlog
+
+10. keyring  
+    License: MIT License  
+    Copyright (c) 2011-2023 Jameson Nash  
+    Repository: https://github.com/jaraco/keyring
+
+11. keyrings.alt  
+    License: MIT License  
+    Copyright (c) 2011-2023 Jameson Nash  
+    Repository: https://github.com/jaraco/keyrings.alt
+
+12. pydantic  
+    License: MIT License  
+    Copyright (c) 2018-2023 Samuel Colvin  
+    Repository: https://github.com/samuelcolvin/pydantic
+
+13. pytest  
+    License: MIT License  
+    Copyright (c) 2004-2023 pytest-dev  
+    Repository: https://github.com/pytest-dev/pytest
+
+14. pytest-mock  
+    License: MIT License  
+    Copyright (c) 2015-2023 pytest-dev  
+    Repository: https://github.com/pytest-dev/pytest-mock
+
+--------------------------------------------------------------------------
+
+Note on Apache License 2.0:  
+This project includes software licensed under the Apache License 2.0. In accordance  
+with the terms of that license, the NOTICE files from those projects have been included  
+where applicable to provide proper attribution and copyright information.
+
+--------------------------------------------------------------------------
+
+END OF NOTICE
+==========================================================================
