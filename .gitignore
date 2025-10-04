@@ -11,3 +11,5 @@ GeminiDualChat.spec
 main.spec
 AIDualChat.zip
 zip.bat
+create_bundle.py
+project_bundle.txt

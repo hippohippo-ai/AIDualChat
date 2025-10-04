@@ -25,6 +25,7 @@ from utils.logging_config import setup_logging
 from utils.language import LanguageManager
 from config.config_manager import ConfigManager
 from services.state_manager import StateManager
+from services.ai_service import AIService
 from core.chat_core import ChatCore
 from ui.main_window import MainWindow
 
@@ -70,6 +71,7 @@ class AIDualChatApp:
 
         self.state_manager = StateManager(self, self.config_model)
         self.state_manager.start_background_refresh()
+        self.ai_service = AIService(self) # 实例化服务网关
 
         self.chat_core = ChatCore(self)
 

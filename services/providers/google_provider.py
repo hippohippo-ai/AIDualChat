@@ -16,6 +16,8 @@
 
 # --- START OF UPDATED services/providers/google_provider.py ---
 
+# --- START OF CORRECTED services/providers/google_provider.py ---
+
 import google.generativeai as genai
 from google.generativeai.types import generation_types, Tool, FunctionDeclaration
 from google.generativeai.protos import FunctionResponse, Part
@@ -23,7 +25,7 @@ from google.api_core import exceptions as api_core_exceptions
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import threading
 from ddgs import DDGS
-from typing import Tuple  # --- FIX: Import Tuple for correct type hinting ---
+from typing import Tuple
 
 from .base_provider import BaseProvider, ProviderError
 
@@ -59,12 +61,7 @@ class GoogleProvider(BaseProvider):
         )
 
     @classmethod
-    # --- FIX: Changed "-> (bool, str)" to the correct "-> Tuple[bool, str]" ---
     def validate_api_key(cls, api_key: str) -> Tuple[bool, str]:
-        """
-        Validates a Google API key by making a simple, low-cost API call.
-        Returns a tuple: (is_valid: bool, message: str).
-        """
         if not api_key.isascii():
             return False, "API Key must contain only ASCII characters."
         try:
@@ -173,11 +170,20 @@ class GoogleProvider(BaseProvider):
             
             genai.configure(api_key=key.api_key)
 
+            # --- MODIFICATION START ---
+            # Read both Persona and Context from the UI
             persona_prompt = self.app.main_window.right_sidebar.persona_prompts[chat_id].get("1.0", "end-1c").strip()
+            context_prompt = self.app.main_window.right_sidebar.context_prompts[chat_id].get("1.0", "end-1c").strip()
+
+            # Combine them into a single system prompt
+            full_system_prompt = f"{persona_prompt}\n\n{context_prompt}".strip()
+            # --- MODIFICATION END ---
+            
             web_search_enabled = self.app.main_window.right_sidebar.web_search_vars[chat_id].get()
             tools = [self.web_search_tool] if web_search_enabled else None
             
-            model = genai.GenerativeModel(model_config['model'], system_instruction=persona_prompt)
+            # Use the combined prompt as the system instruction
+            model = genai.GenerativeModel(model_config['model'], system_instruction=full_system_prompt)
             
             history = self.get_history_for_api(pane.render_history)
             
@@ -244,4 +250,4 @@ class GoogleProvider(BaseProvider):
             is_quota_error = isinstance(e, api_core_exceptions.ResourceExhausted)
             raise ProviderError(f"Google API Error: {e}", is_fatal=not is_quota_error)
 
-# --- END OF UPDATED services/providers/google_provider.py ---
+# --- END OF CORRECTED services/providers/google_provider.py ---

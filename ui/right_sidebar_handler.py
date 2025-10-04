@@ -1,26 +1,10 @@
-# AIDualChat - A dual-pane chat application for AI models.
-# Copyright (C) 2025 Hippohippo-AI
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-# --- START OF CORRECTED right_sidebar_handler.py ---
+# --- START OF FINAL ui/right_sidebar_handler.py ---
 
 import customtkinter as ctk
-import threading
 import re
 from tkinter import messagebox
-from services.providers.base_provider import ProviderError
+# ProviderError 不再需要，因为业务逻辑移走了
+# from services.providers.base_provider import ProviderError
 from config.models import AIConfig
 
 class RightSidebarHandler:
@@ -56,6 +40,16 @@ class RightSidebarHandler:
         self.config_selector_var = ctk.StringVar()
         self.config_description_entry = None
 
+    # --- 新增: 简洁的API调用入口 ---
+    def start_api_call(self, chat_id, message, trace_id):
+        """
+        这个方法现在是UI层唯一的API调用入口。
+        它不包含任何业务逻辑，只负责将请求转发给服务网关。
+        """
+        # 假设您已经在 main.py 中创建了 self.app.ai_service
+        self.app.ai_service.send_message(chat_id, message, trace_id)
+
+    # ... (create_sidebar, handle_state_update 等其他方法保持不变) ...
     def create_sidebar(self, parent):
         self.sidebar_frame = ctk.CTkFrame(parent, width=self.app.RIGHT_SIDEBAR_WIDTH_FULL, fg_color=self.app.COLOR_SIDEBAR, corner_radius=10)
         self.sidebar_frame.pack_propagate(False)
@@ -82,31 +76,22 @@ class RightSidebarHandler:
         self.content_frame.pack(fill="both", expand=True)
         return self.sidebar_frame
 
-    # --- START OF FIX: This new method is the central point for UI updates from the state manager ---
     def handle_state_update(self, is_startup=False):
-        """
-        Called by StateManager after any background state refresh.
-        This ensures the UI reflects the latest available models, keys, etc.
-        """
         self.app.logger.info("Handling state update in RightSidebar.")
         
-        # Update dropdowns for both AI panes
         self.update_selectors_for_pane(1)
         self.update_selectors_for_pane(2)
 
-        # If it's the very first update on startup, re-apply the initial config
-        # to ensure the saved model is selected correctly now that model lists are populated.
         if is_startup:
             self.app.logger.info("Re-applying initial configuration after first state refresh.")
             active_profile = self.app.config_model.get_active_configuration()
             self.apply_config_to_ui(active_profile.ai_1, 1, from_global=True)
             self.apply_config_to_ui(active_profile.ai_2, 2, from_global=True)
-    # --- END OF FIX ---
 
     def _validate_delay_input(self, P):
         if P == "":
             return True
-        if re.fullmatch(r"^\d*\.?\d*$", P): # Allow more flexible float input
+        if re.fullmatch(r"^\d*\.?\d*$", P):
             return True
         return False
 
@@ -222,7 +207,6 @@ class RightSidebarHandler:
         
         return content_frame, header_label
 
-    # --- START OF FIX: Modified to bind click event for model selector ---
     def _create_dropdown(self, parent, label_key, variable, values, command, is_model_selector=False, chat_id_for_model=None, is_preset_selector=False):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="x", padx=15, pady=(3, 3), anchor="w")
@@ -240,7 +224,6 @@ class RightSidebarHandler:
              dropdown.bind('<Button-1>', lambda e: self.update_all_presets_selectors())
         
         return dropdown
-    # --- END OF FIX ---
 
     def _create_textbox(self, parent, label_key, height):
         label = ctk.CTkLabel(parent, text="", font=self.app.FONT_SMALL, text_color=self.app.COLOR_TEXT_MUTED)
@@ -288,12 +271,9 @@ class RightSidebarHandler:
         self.temp_vars[chat_id].set(ai_config.temperature)
         self.web_search_vars[chat_id].set(ai_config.web_search_enabled)
 
-    # --- START OF FIX: Added on_model_selector_click ---
     def on_model_selector_click(self, chat_id):
-        """Called when the user clicks on the model dropdown, ensures the list is up to date."""
         self.app.logger.info(f"Model selector for AI {chat_id} clicked, refreshing list.")
         self.update_selectors_for_pane(chat_id)
-    # --- END OF FIX ---
     
     def on_provider_select(self, chat_id, provider_name, set_model=None, set_key_id=None, is_initial_setup=False):
         if not provider_name or provider_name.startswith('---'):
@@ -370,7 +350,6 @@ class RightSidebarHandler:
                 models = self._get_sorted_google_models(models)
 
             self.model_selectors[chat_id].configure(values=models or [self.lang.get('no_models_available')])
-            # --- START OF FIX: Simplified and more robust model setting ---
             current_model = config.get("model")
             if current_model and current_model in models:
                 self.model_vars[chat_id].set(current_model)
@@ -381,7 +360,6 @@ class RightSidebarHandler:
                     self.app.active_ai_config[chat_id]['model'] = first_valid_model
             else:
                 self.model_vars[chat_id].set(self.lang.get('no_models_available'))
-            # --- END OF FIX ---
         else:
             self.model_selectors[chat_id].configure(values=[])
             self.model_vars[chat_id].set(self.lang.get('select_provider'))
@@ -398,7 +376,7 @@ class RightSidebarHandler:
                     self.key_vars[chat_id].set(current_key_item)
                 else:
                     self.key_vars[chat_id].set(key_list[0])
-                    self.on_key_select(chat_id, key_list[0]) # Make sure active config is updated
+                    self.on_key_select(chat_id, key_list[0])
             else:
                 self.key_vars[chat_id].set(self.lang.get('no_keys_available'))
         else:
@@ -425,7 +403,6 @@ class RightSidebarHandler:
                 selector.configure(values=presets or [self.lang.get('no_presets_available')])
                 if current_val not in presets:
                     selector.set(self.lang.get('select_preset'))
-
 
     def update_all_text(self):
         for widget, key, *args in self.lang_updatable_widgets:
@@ -497,65 +474,13 @@ class RightSidebarHandler:
         self.config_selector.configure(values=config_display_names)
         self.config_selector_var.set(f"{profile.name} | {profile.description}")
         
-        messagebox.showinfo(self.lang.get('success'), self.lang.get('config_saved', default='Configuration saved.'))
+        # --- BUG FIX APPLIED HERE ---
+        messagebox.showinfo(self.lang.get('success'), self.lang.get('config_saved'))
 
-    def start_api_call_with_failover(self, chat_id, message, trace_id):
-        thread = threading.Thread(target=self._api_call_thread_with_failover, args=(chat_id, message, trace_id))
-        thread.daemon = True
-        thread.start()
+    # --- DELETED ---
+    # The following two methods have been moved to the new AIService class
+    # to separate UI from business logic.
+    # def start_api_call_with_failover(...)
+    # def _api_call_thread_with_failover(...)
 
-    def _api_call_thread_with_failover(self, chat_id, message, trace_id):
-        pane = self.app.chat_panes[chat_id]
-        
-        pane.current_generation_id += 1
-        self.app.root.after(0, pane.update_ui_for_sending)
-        
-        active_config = self.app.active_ai_config[chat_id].copy()
-        active_config['generation_id'] = pane.current_generation_id
-        
-        provider_name = active_config.get("provider")
-        provider = self.app.state_manager.get_provider(provider_name)
-
-        if not provider or not active_config.get("model") or active_config.get("model", "").startswith("---"):
-            self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': self.lang.get('error_provider_model_selection')})
-            self.app.root.after(0, pane.restore_ui_after_response)
-            return
-
-        try:
-            for event in provider.send_message(chat_id, active_config, message, trace_id):
-                event['chat_id'] = chat_id
-                event['generation_id'] = active_config['generation_id']
-                self.app.response_queue.put(event)
-        
-        except ProviderError as e:
-            if provider_name == "Google" and not e.is_fatal:
-                self.app.logger.warning("Google provider error, attempting failover.", error=str(e))
-                
-                failed_key_id = active_config.get("key_id")
-                key_obj = self.app.config_model.get_google_key_by_id(failed_key_id)
-                failed_key_note = key_obj.note if key_obj else "N/A"
-                next_key = self.app.state_manager.get_next_available_google_key(failed_key_id)
-
-                if next_key:
-                    system_msg = self.lang.get('failover_message', old_key_note=failed_key_note, new_key_note=next_key.note)
-                    self.app.response_queue.put({'type': 'system', 'chat_id': chat_id, 'text': system_msg})
-                    
-                    self.app.active_ai_config[chat_id]['key_id'] = next_key.id
-                    self.app.root.after(0, self.update_selectors_for_pane, chat_id)
-                    
-                    self._api_call_thread_with_failover(chat_id, message, trace_id)
-                    return
-                else:
-                    self.app.logger.error("Failover failed: No other available Google keys.")
-                    failover_failed_msg = self.lang.get('failover_failed_no_keys', default="Failover failed: No other available Google keys.") + f" Original error: {e}"
-                    self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': failover_failed_msg})
-            else:
-                 self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': str(e)})
-            self.app.root.after(0, pane.restore_ui_after_response)
-        
-        except Exception as e:
-            self.app.logger.error("An unexpected error occurred in the API thread.", error=str(e), exc_info=True)
-            self.app.response_queue.put({'type': 'error', 'chat_id': chat_id, 'text': f"An unexpected error occurred: {e}"})
-            self.app.root.after(0, pane.restore_ui_after_response)
-
-# --- END OF CORRECTED right_sidebar_handler.py ---
+# --- END OF FINAL ui/right_sidebar_handler.py ---

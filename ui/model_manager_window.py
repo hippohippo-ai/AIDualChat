@@ -124,7 +124,7 @@ class ModelManagerWindow(ctk.CTkToplevel):
         action_frame = ctk.CTkFrame(self.google_tab)
         action_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
         
-        self._google_tab_widgets['refresh'] = ctk.CTkButton(action_frame, text=self.lang.get('refresh'), command=lambda: self.app.state_manager.refresh_all_provider_states(force=True))
+        self._google_tab_widgets['refresh'] = ctk.CTkButton(action_frame, text=self.lang.get('refresh'), command=lambda: self.app.state_manager.refresh_all_provider_states())
         self._google_tab_widgets['refresh'].pack(side="left", padx=5, pady=5)
         
         self._google_tab_widgets['delete_key'] = ctk.CTkButton(action_frame, text=self.lang.get('delete_key'), command=self._delete_selected_google_keys, fg_color="red")
@@ -201,7 +201,7 @@ class ModelManagerWindow(ctk.CTkToplevel):
         self._google_tab_widgets['key_value_entry'].delete(0, 'end')
         self._google_tab_widgets['api_key_note_entry'].delete(0, 'end')
         
-        self.app.state_manager.refresh_all_provider_states(force=True)
+        self.app.state_manager.refresh_all_provider_states()
 
     def _delete_selected_google_keys(self):
         ids_to_delete = {key_id for key_id, var in self._google_key_widgets.items() if var.get()}

@@ -66,7 +66,7 @@ class ChatCore:
             raw_display.insert(tk.END, f"\n---\n# {self.lang.get('you')}:\n{msg}\n"); raw_display.see(tk.END)
             
         trace_id = str(uuid.uuid4())
-        self.app.main_window.right_sidebar.start_api_call_with_failover(chat_id, msg, trace_id)
+        self.app.main_window.right_sidebar.start_api_call(chat_id, msg, trace_id)
         return "break"
 
     def process_queue(self):
@@ -146,7 +146,7 @@ class ChatCore:
             pane.render_full_history(scroll_to_bottom=True)
 
         trace_id = str(uuid.uuid4())
-        self.app.main_window.right_sidebar.start_api_call_with_failover(chat_id, last_user_prompt, trace_id)
+        self.app.main_window.right_sidebar.start_api_call(chat_id, last_user_prompt, trace_id)
 
     def stop_generation(self, chat_id):
         pane = self.app.chat_panes[chat_id]

@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# --- START OF CORRECTED services/providers/ollama_provider.py ---
+
 import requests
 import json
 import threading
@@ -52,20 +54,17 @@ class OllamaProvider(BaseProvider):
         base_url = self._get_base_url()
         new_status = {}
         try:
-            # Check reachability
             response = requests.get(base_url, timeout=3)
             response.raise_for_status()
             new_status["is_available"] = True
             self.logger.info("Ollama host is reachable.", host=base_url)
 
-            # Get version
             try:
                 version_res = requests.get(f"{base_url}/api/version", timeout=3)
                 new_status["version"] = version_res.json().get("version", "Unknown")
             except Exception:
                 new_status["version"] = "Unknown"
 
-            # Get models
             tags_res = requests.get(f"{base_url}/api/tags", timeout=10)
             tags_res.raise_for_status()
             models = [m['name'] for m in tags_res.json().get('models', [])]
@@ -89,13 +88,21 @@ class OllamaProvider(BaseProvider):
         base_url = self._get_base_url()
         endpoint = f"{base_url}/api/chat"
         
+        # --- MODIFICATION START ---
+        # Read both Persona and Context from the UI
         persona_prompt = self.app.main_window.right_sidebar.persona_prompts[chat_id].get("1.0", "end-1c").strip()
+        context_prompt = self.app.main_window.right_sidebar.context_prompts[chat_id].get("1.0", "end-1c").strip()
+        
+        # Combine them into a single system prompt
+        full_system_prompt = f"{persona_prompt}\n\n{context_prompt}".strip()
+        # --- MODIFICATION END ---
+        
         history = self.get_history_for_api(pane.render_history)
         
-        # Format history for Ollama
         messages = []
-        if persona_prompt:
-            messages.append({"role": "system", "content": persona_prompt})
+        # Use the combined prompt as the system message
+        if full_system_prompt:
+            messages.append({"role": "system", "content": full_system_prompt})
         
         for msg in history:
             messages.append({"role": msg['role'], "content": msg['parts'][0]['text']})
@@ -131,7 +138,6 @@ class OllamaProvider(BaseProvider):
                         
                         if chunk.get("done"):
                             logger.info("Ollama stream finished.")
-                            # Ollama provides token counts in the final chunk
                             usage_dict = {
                                 'prompt_token_count': chunk.get('prompt_eval_count', 0),
                                 'candidates_token_count': chunk.get('eval_count', 0)
@@ -147,3 +153,5 @@ class OllamaProvider(BaseProvider):
         except requests.exceptions.RequestException as e:
             logger.error("Error during Ollama API call", error=str(e), exc_info=True)
             raise ProviderError(f"Ollama Connection Error: {e}", is_fatal=True)
+
+# --- END OF CORRECTED services/providers/ollama_provider.py ---
